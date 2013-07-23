@@ -1,0 +1,96 @@
+*
+* D3DecatalogPlus
+* D3-specific program to decatalog just the right code
+
+
+* Tony Gravagno, Nebula Research and Development
+* http://Nebula-RnD.com
+*
+* Open Source v2.0.1 : 25-jul-2013
+
+* See https://bitbucket.org/foss4mv/nebulafreeware for:
+* License
+* Wiki (Usage, notes, setup, details, platform info, etc)
+* Issue Tracker
+* Latest Release
+* and to contribute your changes back to Free and Open Source Software!
+
+* If you make enhancements or port this code to another platform,
+* please send the code back to FOSS4MV so that everyone benefits.
+
+* Mods: Use [000] Initials Date Description
+*           Number in braces is the tracker ID or -nn if no tracker.
+* [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+
+    CMD = TRIM(SENTENCE())
+    OPTS = ''
+    POS = INDEX(CMD,\(\,1)
+    IF POS THEN
+      OPTS = FIELD(CMD[POS+1,9],\)\,1)
+      CMD = CMD[1,POS-1]
+    END
+    IF SYSTEM(11) THEN LIST.ACTIVE = 1 ELSE LIST.ACTIVE = 0
+*
+*
+    IF NOT(LIST.ACTIVE) THEN
+      IF FIELD(CMD,' ',3) # "" THEN
+* one or more item id's.  make a list
+* see if there is an option first
+        EXECUTE \SSELECT \ : OCONV( CMD , \G1 9999\ ) CAPTURING OUT
+        IF SYSTEM(11) THEN LIST.ACTIVE = 1
+      END
+    END
+    IF NOT( LIST.ACTIVE ) THEN
+      CRT 'No items to decatalog'
+      STOP
+    END
+*
+    OPEN 'MD' TO F.MD ELSE STOP 201, 'MD'
+    FNAME = FIELD(CMD,' ',2)
+    DONE = 0
+    LOOP
+      READNEXT ID ELSE DONE = 1
+    UNTIL DONE DO
+*
+      OK.TO.DEL = 1 ; * assume OK to delete, 0 means skip
+* 1 = MD agrees with commandline
+* 0 = MD doesn't agree with commandline - shift?
+* -1 = no MD item, safe to decatalog
+* -2 = delete object only, swap the MD item to avoid deletion
+*
+* If commandline includes (O) for delete Object Only, OK.TO.DEL=-2.
+* Shift the MD item out of the way for a second to ensure the MD
+* item isn't deleted.
+*
+      READV MDINFO FROM F.MD,ID,4 THEN ; * catalog entry atb4 has filename
+        IF FIELD( MDINFO , \ \ , 1 ) # FNAME THEN
+          IF INDEX( OPTS , \O\ , 1 ) THEN
+            OK.TO.DEL = -2
+          END ELSE OK.TO.DEL = 0 ; * don't shift, don't delete
+        END
+      END ELSE OK.TO.DEL = -1
+*
+      PUT.IT.BACK = 1
+      MDITEM = ''
+      IF OK.TO.DEL = -2 THEN
+        READ MDITEM FROM F.MD,ID ELSE PUT.IT.BACK=0 ; * Impossible, we just read it
+        OK.TO.DEL = 1
+      END
+
+      IF OK.TO.DEL = 0 THEN
+        CRT \'\ : ID : \' Not Decataloged, MD points to different file.\
+      END
+
+* future option might be added to not remove object if there's no MD item
+* so don't replace -1 with 1
+      IF OK.TO.DEL = 1 OR OK.TO.DEL = -1 THEN
+        EXECUTE "D3.DECATALOG " : FNAME : " " : ID
+        IF MDITEM # '' AND PUT.IT.BACK THEN
+          WRITE MDITEM ON F.MD,ID
+          CRT \'\ : ID : \' Not Removed from MD.\
+        END
+      END
+*
+    REPEAT
+*
+    END

@@ -1,0 +1,146 @@
+*
+* COMPARATIVE.AQL: Converts Comparator AQL queries
+
+
+
+* Tony Gravagno, Nebula Research and Development
+* http://Nebula-RnD.com
+*
+* Open Source v2.0.1 : 25-jul-2013
+
+* See https://bitbucket.org/foss4mv/nebulafreeware for:
+* License
+* Wiki (Usage, notes, setup, details, platform info, etc)
+* Issue Tracker
+* Latest Release
+* and to contribute your changes back to Free and Open Source Software!
+
+* If you make enhancements or port this code to another platform,
+* please send the code back to FOSS4MV so that everyone benefits.
+
+* Mods: Use [000] Initials Date Description
+*           Number in braces is the tracker ID or -nn if no tracker.
+* [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+
+    TCL = TRIM(SENTENCE())
+    FNAME = FIELD(TCL,' ',2)
+    FPOS = 2
+    IF FNAME = 'DICT' THEN  ; * access statement is against dict
+      DNAME = 'MD'         ; * definitions in md for dict file
+      FNAME = FIELD(TCL,' ',3)
+      FPOS = 3
+* Using new definitions created in the MD doesn't seem to
+* be working.  Operations on Dict are not yet supported.
+      STOP "U9001"
+    END ELSE
+      DNAME = 'DICT ':FNAME ; * definitions in dict
+    END
+    FPOS += 1 ; * start with first word after file name
+    OPEN DNAME TO DICT ELSE STOP 201,DNAME
+    WORDS = DCOUNT(TCL,' ')
+***************************************************************
+*
+* Create the list of operators that determine whether
+* any trio of values is a comparison.  Example:
+*     verb file WITH aaa LE bbb
+* We need to check for that LE
+*
+* This is the list of valid TCL operators
+    TEMP = '< LT BEFORE'
+    TEMP := ' > GT AFTER'
+    TEMP := ' = EQ'
+    TEMP := ' # NE NOT'
+    TEMP := ' >= GE <= LE'
+    OPERATORS = SWAP(TEMP,' ',@VM)
+*
+* All of those operators have an equivalent in the A-Correlative.
+* Just in case one of the values cannot be used in a correlative,
+* create a sublist of operators that is the SAME as the above.
+*
+    TEMP = '< < <'
+    TEMP := ' > > >'
+    TEMP := ' = ='
+    TEMP := ' # # #'
+    TEMP := ' >= >= <= <='
+    SAME.OP1 = SWAP(TEMP,' ',@VM)
+
+* Finally, we're creating dict items that include the operator
+* in the ID. We don't want to use the symbol so we use a more
+* verbose form.
+    TEMP = '_LT_ _LT_ _LT_'
+    TEMP := ' _GT_ _GT_ _GT_'
+    TEMP := ' _EQ_ _EQ_'
+    TEMP := ' _NE_ _NE_ _NE_'
+    TEMP := ' _GE_ _GE_ _LE_ _LE_'
+    SAME.OP2 = SWAP(TEMP,' ',@AM)
+
+* When we see these words we are done scanning
+    DONE.WORDS = 'HEADING FOOTING SAMPLING'
+    DONE.WORDS := ' COL-HDR-SUPP HDR-SUPP ID-SUPP'
+* Add more Done.Words here as required - there are lots.
+* The only harm in missing them is that we'll scan into them,
+* but this isn't a problem unless an Operator word is found
+* in a header/footer or in output specs.
+* Example of a problem header:
+* HEADING "Products where Type=1     PaGE 'PNCL'"
+    DONE.WORDS = SWAP(DONE.WORDS,' ',@VM)
+
+    SUBS = ''
+    DONE = 0
+    FOR W = FPOS TO WORDS UNTIL DONE ; * MOD[1] Check for Done
+      WORD1 = FIELD(TCL,' ',W)
+* If we find a Done word then stop processing
+      LOCATE(WORD1,DONE.WORDS,1;POS) THEN
+        DONE = 1
+      END ELSE
+* We're not done, look at the block of Words 1,2,3
+        WORD2 = FIELD(TCL,' ',W+1)
+        WORD3 = FIELD(TCL,' ',W+2)
+* Ignore normal literals
+        IF WORD3[1,1] # \"\ THEN
+* Is the second word an operator between two ADI's?
+          LOCATE(WORD2,OPERATORS,1;POS) THEN
+* Create a new dict item
+            ADI = SWAP("S,0,,,,,,,R,1", "," ,@AM)
+            CORR = "A;IF N(":WORD1:") "
+            CORR := SAME.OP1<1,POS>
+            CORR := " N(":WORD3:") THEN '1' ELSE '0'"
+* The comparator is in the Correlative = atb8
+            ADI<8> = CORR
+* Write the new dict item
+            WRITE ADI ON DICT, WORD1:(SAME.OP2<POS>):WORD3
+* Create a substitution string so that we can
+* replace the new ADI into the command line
+* when we're all done.
+            TEMP = WORD1:' ':WORD2:' ':WORD3
+            TEMP<1,2> = WORD1:(SAME.OP2<POS>):WORD3:\ = "1"\
+            SUBS<-1> = TEMP
+* Skip from word1 to word after word3
+            W += 2
+          END
+        END
+      END
+    NEXT W
+*
+* Replace all word1,2,3 sequences with new ADI's
+    FOR W = 1 TO DCOUNT(SUBS,@AM)
+      TCL = SWAP(TCL,SUBS<W,1>,SUBS<W,2>)
+    NEXT W
+***************************************************************
+*
+* Remove the leading "C" that got us into this mess
+    TCL = TCL[2,99999]
+    CRT TCL
+    EXECUTE TCL RETURNING ERR
+*
+***************************************************************
+*
+* Remove the dict items that we created,
+* only if there is no error.
+    IF ERR # 166 THEN
+      FOR W = 1 TO DCOUNT(SUBS,@AM)
+        DELETE DICT,SUBS<W,2>
+      NEXT W
+    END
+*
+END

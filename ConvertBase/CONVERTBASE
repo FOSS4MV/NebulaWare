@@ -1,0 +1,67 @@
+*
+* ConvertBase
+* This program will convert any base to any other base.
+* Assume bases are from 2 to 36.
+
+* Tony Gravagno, Nebula Research and Development
+* http://Nebula-RnD.com
+*
+* Open Source v2.0.1 : 25-jul-2013
+
+* See https://bitbucket.org/foss4mv/nebulafreeware for:
+* License
+* Wiki (Usage, notes, setup, details, platform info, etc)
+* Issue Tracker
+* Latest Release
+* and to contribute your changes back to Free and Open Source Software!
+
+* If you make enhancements or port this code to another platform,
+* please send the code back to FOSS4MV so that everyone benefits.
+
+* Mods: Use [000] Initials Date Description
+*           Number in braces is the tracker ID or -nn if no tracker.
+* [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+
+    chars = "0123456789"
+    chars := "abcdefghijklmnopqrstuvwxyz"
+* add more here if you dare.
+    crt "base from "; input base.from
+    crt "base to  "; input base.to
+    crt "number    "; input num.from
+    original.from = num.from
+    if base.from # 10 then gosub from.n.to.decimal
+    gosub from.decimal
+    crt original.from:" in base ":base.from:" = "
+    crt num.to:" in base":base.to
+    stop
+from.decimal: *
+    hold = ""
+    divisor = num.from
+    loop
+      rem.int = int(divisor / base.to)
+      rem.mod = mod( divisor , base.to )
+      divisor = rem.int
+      hold<-1> = rem.mod
+    until divisor = 0 do repeat
+    digits = dcount(hold,@am)
+    num.to = ""
+    for n = digits to 1 step -1
+      num.to := chars[ hold<n>+1 , 1 ]
+    next n
+    return
+from.n.to.decimal: *
+    digits = len( num.from )
+    num.to = 0
+    for n = 1 to digits
+      digit = num.from[ n , 1 ]
+      multiplier = index( chars , digit, 1 ) - 1
+      exponent = digits - n
+      hold = multiplier * ( base.from ** exponent )
+      num.to += hold
+    next n
+    num.from = num.to
+    return
+*
+*
+*
+    END

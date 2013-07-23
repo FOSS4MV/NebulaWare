@@ -1,0 +1,165 @@
+* SnapShot
+
+
+
+
+* Tony Gravagno, Nebula Research and Development
+* http://Nebula-RnD.com
+*
+* Open Source v2.0.1 : 25-jul-2013
+
+* See https://bitbucket.org/foss4mv/nebulafreeware for:
+* License
+* Wiki (Usage, notes, setup, details, platform info, etc)
+* Issue Tracker
+* Latest Release
+* and to contribute your changes back to Free and Open Source Software!
+
+* If you make enhancements or port this code to another platform,
+* please send the code back to FOSS4MV so that everyone benefits.
+
+* Mods: Use [000] Initials Date Description
+*           Number in braces is the tracker ID or -nn if no tracker.
+* [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+
+* This program has no UI, but includes a displayed warning,
+* so from the start we're allowing for different UIs:
+    UI = "screen"
+
+* using md rather than creating a custom config file
+    ckey = "SNAPSHOT-CONFIG"
+    open "md" to f.md else stop
+    read config from f.md,ckey then
+      gosub Main
+    end else
+* currently hardcoded default save dir:
+      config = ""                     ; * 001 = "" or "SKIP"
+      config<2> = "autobackup"        ; * 002 = "autobackup" or user-specified filename
+      config<3> = "C:\Temp\D3Pseudo\" ; * 003 = path to directory where saves are stored.
+      config<10> = "dm"               ; * 010 = MV list of accounts to save.
+      gosub Warn.New.Config
+    end
+    write config on f.md,ckey
+* Probably not required to close MD but this is
+* shutdown time so let's try to wrap up cleanly.
+    close f.md
+    stop
+
+Main: *
+
+    tclread cmd
+    if index(cmd,"skip",1) then
+      config<1> = "skip"
+      return
+* If "SNAPSHOT" is in user-shutdown then this
+* program is initiated.  To skip the save, enter
+* "SNAPSHOT SKIP" at TCL before shutdown and
+* this code will set a flag so that the save will
+* be skipped at shutdown time.
+    end
+    if config<1> = "skip" then
+* Check for the token.  If found, delete it for next
+* time, skip the save and proceed with shutdown.
+* just entering "SNAPSHOT" at TCL has the same
+* effect of re-enabling the save.
+      config<1> = ""
+      return
+    end else null
+*
+* Build the key for the save file.
+    today = oconv(date(),"dw") "r%3"
+    hour = field( oconv(time(),"mt") , ":", 1)
+    now = today:hour:".d3p"
+* ".d3p" is, or should be, a common extension for
+* D3 Pseudo files. We need the extension there for
+* the Get.Device subroutine.
+
+    fname = config<2>
+    if fname = "" then config<2> = "autobackup"
+    media = fname:now
+
+    last.device = -1 ; * in case we need to create one
+    device = -1 ; * in case a good device exists
+    gosub Get.Device
+    if device = -1 then
+* we didn't find an existing device
+      gosub Create.Device
+    end
+    gosub Perform.Saves
+* all done!
+    return
+
+Get.Device: *
+
+* this routine needs improvement.  It parses the output
+* of list-device.  Might be better to work from raw data.
+
+    execute "list-device" capturing out
+    dc = dcount(out,@am)
+    for n = 1 to dc
+* since pipe symbols are used in list-device to delimit
+* fields, we assume that a pipe means we're on
+* a device line, and the beginning of that line
+* has a device number.
+      if index(out<n>,"|",1) then
+        last.device = field(trim(out<n>)," ",1)
+* look for the 00011.d3p signature.  we don't
+* want to create a device if it already exists.
+* (That's not really important though.)
+        if index(out<n>,now,1) then
+          			device = last.device
+        end
+      end
+    next n
+    last.device += 1
+    return
+
+Create.Device: *
+    pseudo = '"' : config<3> : media:',p"'
+    cmd = 'dev-make -t tape -n ':last.device:' -a ':pseudo
+    device = last.device
+    execute cmd capturing out
+    return
+
+Perform.Saves: *
+    cmd = 'set-device ':device
+    execute cmd capturing out
+    cmd = 't-rew'
+    execute cmd capturing out
+    dc = dcount(config<10>,@vm)
+    for n = 1 to dc
+      cmd = 'account-save ':config<10,n>
+      execute cmd
+    next n
+    cmd = 't-rew' :@am: 't-rew'
+    execute cmd capturing out
+    cmd = 't-det'
+    execute cmd capturing out
+    return
+
+Warn.New.Config: *
+    warned = 0
+* Weird construct here just tries to plan for the future when
+* we might need to try warning use in different ways.
+* Consider NOTIFY.ADMIN from FOSS4MV NebulaWare.
+    loop
+      begin case
+      case UI = "screen"
+        print "************************"
+        print "************************"
+        print "No SNAPSHOT-CONFIG item in dm,md,"
+        print "No accounts will be saved."
+        print "Default data stored in new config item."
+        print
+        print "Enter to Continue:":
+        input z
+        warned = 1
+      case 1
+        print "************************"
+        print "************************"
+        print "Variable UI not set to known value."
+        print "Defaulting to 'screen' UI."
+        UI = "screen"
+      end case
+    until warned = 1 do repeat
+    return

@@ -1,0 +1,78 @@
+    SUB NOTIFY.ADMIN(MSG,ACCT,OPTIONS)
+* NotifyAdmin
+* Notify the administrator that something has happened
+* This is the D3-specific version. Port to a new platform and change the
+* platform ID in the program ID.
+* Tony Gravagno, Nebula Research and Development
+* http://Nebula-RnD.com
+*
+* Open Source v2.0.1 : 25-jul-2013
+
+* See https://bitbucket.org/foss4mv/nebulafreeware for:
+* License
+* Wiki (Usage, notes, setup, details, platform info, etc)
+* Issue Tracker
+* Latest Release
+* and to contribute your changes back to Free and Open Source Software!
+
+* If you make enhancements or port this code to another platform,
+* please send the code back to FOSS4MV so that everyone benefits.
+
+* Mods: Use [000] Initials Date Description
+*           Number in braces is the tracker ID or -nn if no tracker.
+* [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+
+* MSG: single attribute message to go to admin
+* ACCT: account to send _from_ or null from current
+* OPTIONS: (so far) includes R1 to return output
+
+
+    BEGIN CASE
+
+    CASE INDEX(OPTIONS, "A1", 1)
+* Fictional A1 code is our cue to send a message to whomever is logged into DM on this system
+      GOSUB LOCAL.MSG.D3 ; * this code is D3-specific
+
+    CASE INDEX(OPTIONS, "A2", 1)
+* Fictional A2 code is for issues that should be emailed
+      GOSUB EMAIL.A1
+
+    CASE 1
+* Don't know how to handle this message
+* Add more cases above
+
+    END CASE
+
+    RETURN
+
+LOCAL.MSG.D3: *
+    IF ACCT = "" THEN ACCT = @ACCOUNT
+    ADMIN = "dm" ; * hardcoded for demo, might be !5 or a UserID
+*  CALL GET.CURRENT.ADMIN(ADMIN); * more selective
+
+ * Use a phantom to execute MSG command, not current port
+ * Start to use this pattern - don't send notifications from this user port,
+ * spawn off a phantom in case notifications themselves abort or take too long.
+    CMD = "MSG ":ADMIN:" ":MSG
+    STMT = "ZS" ;
+    STMT<1,-1> = ""
+    STMT<1,-1> = ACCT
+* accomodate D3 bug pre-v7.4
+*  IF @USER # "dm" THEN STMT<1,-1> = \\
+    STMT<1,-1> = CMD
+    STMT<1,-1> = ""
+    STMT<1,-1> = ""
+    EXECUTE STMT CAPTURING OUT RETURNING ERR
+    IF INDEX(OPTIONS,'R1',1) THEN
+      MSG = ERR ; * single attribute
+      MSG<2> = OUT ; * might be multiple attributes
+      * Consider logging this MSG
+    END
+    RETURN
+
+EMAIL.A1: *
+** ... build e-mail details
+*CALL NEBULAMAIL(...)  ; * or some other mechanism :)
+    RETURN
+    
+    END

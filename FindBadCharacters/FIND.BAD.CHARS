@@ -1,0 +1,90 @@
+*
+* FindBadChars
+* Find bad characters in a file ID or data
+
+
+* Tony Gravagno, Nebula Research and Development
+* http://Nebula-RnD.com
+*
+* Open Source v2.0.1 : 25-jul-2013
+
+* See https://bitbucket.org/foss4mv/nebulafreeware for:
+* License
+* Wiki (Usage, notes, setup, details, platform info, etc)
+* Issue Tracker
+* Latest Release
+* and to contribute your changes back to Free and Open Source Software!
+
+* If you make enhancements or port this code to another platform,
+* please send the code back to FOSS4MV so that everyone benefits.
+
+* Mods: Use [000] Initials Date Description
+*           Number in braces is the tracker ID or -nn if no tracker.
+* [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+
+* What file do you want to check?
+   INPUT F
+   OPEN F ELSE STOP 201,F ; * uses default/un-named file buffer
+   SELECT ; * uses default/un-named file buffer
+   CT = 0
+   LOOP
+      READNEXT ID ELSE STOP
+      CT+=1
+*     CRT CT:" ":ID ; * comment this line to avoid scrolling keys
+      REC1 = ID
+      TYPE = "ID"
+      GOSUB CHECK
+      BAD = 0
+      READ REC0 FROM ID ELSE
+         CRT \Can't read ID '\ : ID : \'\
+         BAD = 1
+      END
+      IF ID = "" THEN
+         CRT "Null ID!"
+         BAD = 1
+      END
+      IF BAD THEN
+         INPUT X
+         REC0 = ''
+      END
+      REC1 = REC0
+      TYPE = "DATA"
+      GOSUB CHECK
+   UNTIL 0 DO REPEAT
+   STOP
+CHECK:
+   REC1 = SWAP(REC1,@AM,"{AM}")
+   REC1 = SWAP(REC1,@VM,"]")
+   REC1 = SWAP(REC1,@SM,"\")
+   REC2 = OCONV(REC1,'MCP')
+   IF REC1 # REC2 THEN
+      CRT \BAD \ : TYPE : \ '\ : ID : \'\
+      REC1 = SWAP(REC1,"{AM}",@AM)
+      REC2 = SWAP(REC2,"{AM}",@AM)
+      L1 = LEN(REC1)
+      LAST.ATB = ""
+      FOR P1 = 1 TO L1
+         IF REC1[P1,1] # REC2[P1,1] THEN
+            IF TYPE # "ID" THEN
+               THIS.ATB = DCOUNT( REC1[1,P1] , @AM )
+               IF THIS.ATB # LAST.ATB THEN
+                  CRT "  atb " : THIS.ATB
+                  LAST.ATB = THIS.ATB
+               END
+            END
+            LINE1 = REC1<THIS.ATB>
+            LINE2 = REC2<THIS.ATB>
+            L2 = LEN(LINE1)
+            FOR P2 = 1 TO L2
+               IF LINE1[P2,1] # LINE2[P2,1] THEN
+                  CRT \  \ : (P2'R#5') : \ '\ : (LINE1[P2-4,9]): \'\
+               END
+            NEXT P2
+            P1 = INDEX(REC1,@AM,THIS.ATB)
+            IF P1=0 THEN P1=L1
+         END
+      NEXT P1
+      INPUT Z
+   END
+   RETURN
+   END

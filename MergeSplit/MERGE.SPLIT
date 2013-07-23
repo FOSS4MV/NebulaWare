@@ -1,0 +1,212 @@
+*
+* MergeSplit
+* Merge Include items into a baseline program, split them out again
+
+
+* Tony Gravagno, Nebula Research and Development
+* http://Nebula-RnD.com
+*
+* Open Source v2.0.1 : 25-jul-2013
+
+* See https://bitbucket.org/foss4mv/nebulafreeware for:
+* License
+* Wiki (Usage, notes, setup, details, platform info, etc)
+* Issue Tracker
+* Latest Release
+* and to contribute your changes back to Free and Open Source Software!
+
+* If you make enhancements or port this code to another platform,
+* please send the code back to FOSS4MV so that everyone benefits.
+
+* Mods: Use [000] Initials Date Description
+*           Number in braces is the tracker ID or -nn if no tracker.
+* [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+
+    PLACEHOLDER = CHAR(2)
+    BACKUP.DELIM = "|"; * should not appear in any ID or filename
+    OPEN "MERGE.SPLIT.BACKUP" TO F.BACKUP ELSE
+* Not including code here to create file, will be
+* different for each platform
+      CRT "Please create file MERGE.SPLIT.BACKUP and then re-run"
+      STOP
+    END
+    CRT "Enter source program file":
+    INPUT BP
+    OPEN BP TO F.BP ELSE STOP 201,BP
+    CRT "Enter source program ID":
+    INPUT ID
+    READ PROG FROM F.BP,ID ELSE STOP 202,ID
+    UNIQUE = SYSTEM(19); * keep unique value consistent for this run
+    CRT "Unique ID for this session : " : UNIQUE
+    CONVERT PLACEHOLDER TO \\ IN PROG
+*
+    CRT "1) Merge or 2) Split":
+    INPUT OPTION
+    BEGIN CASE
+    CASE OPTION = 1
+      GOSUB BACKUP.SOURCE
+      GOSUB DO.MERGE
+    CASE OPTION = 2
+      GOSUB BACKUP.SOURCE
+      GOSUB DO.SPLIT
+    CASE 1
+      CRT "Invalid selection"
+      STOP
+    END CASE
+    CRT "Done"
+    STOP
+*
+BACKUP.SOURCE: *
+* Get backup of the original item.
+* How this is done is open for suggestion.
+    WRITE PROG ON F.BACKUP, BP : BACKUP.DELIM : ID : BACKUP.DELIM : UNIQUE
+    RETURN
+*
+DO.MERGE: *
+    LOOP
+      CHANGES = 0
+      GOSUB CHECK.FOR.INCLUDES
+    UNTIL CHANGES = 0 DO
+      PROG = NEWPROG
+    REPEAT
+    CONVERT PLACEHOLDER TO \\ IN NEWPROG
+    WRITE NEWPROG ON F.BP,ID; * write back over original item
+    RETURN
+*
+DO.SPLIT: * Not the most elegant algorithm but it works
+    LOOP
+      CHANGES = 0
+      GOSUB REMOVE.INCLUDE.ITEM
+    UNTIL CHANGES = 0 DO REPEAT
+    CONVERT PLACEHOLDER TO "" IN PROG
+    WRITE PROG ON F.BP,ID
+    RETURN
+*
+REMOVE.INCLUDE.ITEM: *
+    DC = DCOUNT(PROG,@AM)
+    LAST.START = 0
+    FOR ATB = 1 TO DC
+      LINE = TRIM(PROG<ATB>)
+      IF LINE[1,18] = "*! START.INCLUDE :" THEN
+        LAST.START = ATB
+      END ELSE
+        IF LINE[1,16] = "*! END.INCLUDE :" THEN
+          EXTERNAL = ""
+          LINE = TRIM(LINE[17,99])
+          GOSUB GET.FILE.AND.PROG.FROM.INCLUDE
+          GOSUB REMOVE.CODE
+          GOSUB WRITE.EXTERNAL.CODE
+          PROG = NEWPROG
+          CHANGES = 1
+          RETURN
+        END
+      END
+    NEXT ATB
+    RETURN
+*
+REMOVE.CODE: *
+    START.ATB = LAST.START
+    END.ATB = ATB
+    NEWPROG = ""
+    EXTERNAL = ""
+    DC = DCOUNT(PROG,@AM)
+    FOR ATB = 1 TO DC
+      IF ATB < START.ATB OR ATB > END.ATB THEN
+        NEWPROG<-1> = PROG<ATB>:PLACEHOLDER
+      END
+      IF ATB = START.ATB THEN
+        NEWPROG<-1> = TRIM(PROG<ATB>)[19,999]
+      END
+      IF ATB > START.ATB AND ATB < END.ATB THEN
+        EXTERNAL<-1> = PROG<ATB>:PLACEHOLDER
+      END
+    NEXT ATB
+    RETURN
+*
+CHECK.FOR.INCLUDES: *
+    NEWPROG = ""
+    DC = DCOUNT(PROG,@AM)
+    FOR ATB = 1 TO DC
+      LINE = TRIM(PROG<ATB>)
+      IF OCONV(LINE[1,7],"MCU") = "INCLUDE" THEN
+        GOSUB INSERT.INCLUDE
+        CHANGES = 1
+      END ELSE
+        NEWPROG<-1> = PROG<ATB>:PLACEHOLDER
+      END
+    NEXT ATB
+    RETURN
+*
+WRITE.EXTERNAL.CODE: *
+    CONVERT PLACEHOLDER TO \\ IN EXTERNAL
+    ORIG = ""
+    IF IFILE # BP THEN
+      OPEN IFILE TO F.TEMP ELSE
+        CRT ATB : " " : PROG<ATB>
+        CRT \Can't open file '\ : IFILE: \'\
+        STOP
+      END
+      READ ORIG FROM F.TEMP,IPROG ELSE
+        CRT ATB : " " : PROG<ATB>
+        CRT \Can't read original include item '\ : IPROG : \'\
+* STOP ; * not a reason to stop
+      END
+      WRITE ORIG ON F.BACKUP,IFILE:BACKUP.DELIM:IPROG:BACKUP.DELIM:UNIQUE
+      WRITE EXTERNAL ON F.TEMP,IPROG
+    END ELSE
+      READ ORIG FROM F.BP, IPROG ELSE
+        CRT ATB:" ":PROG<ATB>
+        CRT  \Can't read original include item '\ : IPROG : \'\
+* STOP ; * not a reason to stop
+      END
+      WRITE ORIG ON F.BACKUP,BP:BACKUP.DELIM:IPROG:BACKUP.DELIM:UNIQUE
+      WRITE EXTERNAL ON F.BP,IPROG
+    END
+    RETURN
+*
+GET.FILE.AND.PROG.FROM.INCLUDE: *
+    IFILE = FIELD(LINE , ' ' , 2)
+    IPROG = FIELD(LINE , ' ' , 3)
+    IF IPROG = "" THEN; * doesn't handle comments at the end of INCLUDE line
+      IPROG = IFILE
+      IFILE = BP
+    END
+* Line endings may contain placeholder
+    CONVERT PLACEHOLDER TO \\ IN IFILE
+    CONVERT PLACEHOLDER TO \\ IN IPROG
+    RETURN
+*
+INSERT.INCLUDE: *
+    GOSUB GET.FILE.AND.PROG.FROM.INCLUDE
+    IF IFILE # BP THEN
+      GOSUB GET.CODE.FROM.OTHER.FILE
+    END ELSE
+      GOSUB GET.CODE.FROM.BP
+    END
+    NEWPROG<-1> = "*! START.INCLUDE :" : PROG<ATB>
+    NEWPROG<-1> = CODE:PLACEHOLDER
+    NEWPROG<-1> = "*! END.INCLUDE :" : PROG<ATB>
+    RETURN
+*
+GET.CODE.FROM.OTHER.FILE: *
+    CRT ATB : " "  :PROG<ATB>
+    CRT IFILE : ", " : IPROG
+    OPEN IFILE TO F.TEMP ELSE
+      CRT \Can't open file '\ : IFILE : \'\
+      STOP
+    END
+    READ CODE FROM F.TEMP,IPROG ELSE
+      CRT \Can't read item '\ : IPROG : \'\
+      STOP
+    END
+    RETURN
+*
+GET.CODE.FROM.BP: *
+    CRT ATB:" ":PROG<ATB>
+    CRT BP:", ":IPROG
+    READ CODE FROM F.BP,IPROG ELSE
+      CRT \Can't read item '\ : IPROG : \'\
+      STOP
+    END
+    RETURN
+    END

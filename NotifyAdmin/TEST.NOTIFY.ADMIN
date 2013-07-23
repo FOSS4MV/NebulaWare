@@ -1,0 +1,42 @@
+*
+* Test NotifyAdmin
+* Send a test message to admin. Use code like this in your apps.
+* Currently calls to D3 version of notify program. Modify for your platform.
+
+* Tony Gravagno, Nebula Research and Development
+* http://Nebula-RnD.com
+*
+* Open Source v2.0.1 : 25-jul-2013
+
+* See https://bitbucket.org/foss4mv/nebulafreeware for:
+* License
+* Wiki (Usage, notes, setup, details, platform info, etc)
+* Issue Tracker
+* Latest Release
+* and to contribute your changes back to Free and Open Source Software!
+
+* If you make enhancements or port this code to another platform,
+* please send the code back to FOSS4MV so that everyone benefits.
+
+* Mods: Use [000] Initials Date Description
+*           Number in braces is the tracker ID or -nn if no tracker.
+* [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+
+* Usage: At TCL try:
+*    TEST.NOTIFY.ADMIN Hello World!
+
+    TCLREAD TCL
+    MSG = OCONV(TRIM(TCL),'G1 999')
+    IF MSG = "" THEN ; * Supply a default message
+      MSG = "Event from ":@USER:" on line ":@PIB
+    END
+* OPTIONS might include a code to direct message to proper handler
+* For example:
+*   R1 might be "role 1" admins meaning just sys admins, not developers
+*   L2 might be the "level 2 log" which might be an email rather than a SMS message
+    OPTIONS = "" ;
+    CALL NOTIFY.ADMIN.D3(MSG,"",OPTIONS)
+* Last parameter may return a message for the user or app log
+    IF OPTIONS # "" THEN CRT MSG
+
+    END

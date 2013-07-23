@@ -1,0 +1,263 @@
+*
+* D3GetListFix
+* This program addresses problems in GET-LIST specific to v9.0-9.1
+
+
+* Tony Gravagno, Nebula Research and Development
+* http://Nebula-RnD.com
+*
+* Open Source v2.0.1 : 25-jul-2013
+
+* See https://bitbucket.org/foss4mv/nebulafreeware for:
+* License
+* Wiki (Usage, notes, setup, details, platform info, etc)
+* Issue Tracker
+* Latest Release
+* and to contribute your changes back to Free and Open Source Software!
+
+* If you make enhancements or port this code to another platform,
+* please send the code back to FOSS4MV so that everyone benefits.
+
+* Mods: Use [000] Initials Date Description
+*           Number in braces is the tracker ID or -nn if no tracker.
+* [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+
+* This is the main entry point into this routine
+* Add logging or other functionality here.
+
+    TCL = TRIM(SENTENCE())
+    OPTS = FIELD(TCL,"(",2) ; * Get options
+    DEFAULT.PF = "POINTER-FILE"
+    TEMP.FNAME = "PF&TEMP" ; * set as a variable here for easy changing
+
+* Allow for creating temp files for this port or another
+    CMODE = 0
+    IF INDEX(OPTS , \C\ ,1) THEN
+      GOSUB CHECK.NUMS ; * get the port number in FIRSTN
+      IF FIRSTN = "" THEN PORT=@PIB ELSE PORT = FIRSTN
+      MY.TEMP.FNAME = TEMP.FNAME : \,\ : PORT ; * local name for this specific port (can substitute user or other unique ID)
+      CMODE = 1
+      GOSUB GET.WORK.FILE
+      STOP ; * we're done with this special function
+    END
+
+    FINAL.CMD = ""
+    GOSUB MAIN
+* Add wrap code here if desired
+    IF FINAL.CMD # "" THEN
+* must use Chain, not Execute! Need to avoid corrupting data stack
+      CHAIN FINAL.CMD ; * we don't come back from this
+    END
+    STOP
+
+MAIN: *>>
+      MY.TEMP.FNAME = TEMP.FNAME : \,\ : @PIB ; * local name for this specific port (can substitute user or other unique ID)
+      CURRENT.PF = DEFAULT.PF
+      NEW.TCL = ""
+
+* Assume we're going to use this code. Setting OK to 0 means "use default".
+* This is different from saying 0="don't use this" and setting to non 0 otherwise.
+      OK = 1
+      GOSUB GET.WORK.FILE
+      IF OK <= 0 THEN RETURN
+
+      GOSUB CHECK.MULTIFILE
+      IF OK = 0 THEN ; * use default
+        FINAL.CMD = "D3.GET-LIST " : TCL[10,9999]
+        RETURN ; * don't execute here
+      END
+
+      GOSUB CHECK.NUMS
+      IF OK > 0 THEN
+* we know we're going to at least get a range of keys
+* but don't process the final statement because we need to know if we're getting unique items
+        GOSUB CUSTOM.SELECT
+        IF FINAL.CMD # "" THEN RETURN
+        IF OK = 0 THEN ; * use default
+          FINAL.CMD = "D3.GET-LIST " : TCL[10,9999]
+          RETURN ; * don't execute here
+        END
+* If all went well, we have a NEW.TCL here: "verb file id (opts" or "verb id (opts"
+        IF NEW.TCL # "" THEN
+          OPTS = NEW.OPTS
+          TCL = NEW.TCL ; * needed by GET.UNIQUE
+        END
+      END
+
+* At this point we may or may not have gone through custom select and
+* the selection of items might be different than specified in the command line.
+
+      IF INDEX(OPTS,"U",1) THEN ; * we only want unique values
+        OK = 1
+        GOSUB CHECK.MULTIFILE ; * do again in case we changed the file
+*
+* notes on falling into debug:
+* It's bad if something happens at this point.
+* Something is really wrong if we can't identify or open the pointer file.
+* Chances are that an error at this point is a code error here.
+* Falling into debug will get someone's attention more than returning null or bad data.
+        IF OK = 0 THEN DEBUG
+        GOSUB GET.UNIQUE
+        IF OK = 0 THEN DEBUG
+      END
+      IF OK > 0 THEN
+        IF NEW.TCL # "" THEN
+          FINAL.CMD = NEW.TCL
+          RETURN ; * don't execute here
+        END
+      END ELSE ; * didn't have any errors but we didn't do anything - use D3 defaults
+        FINAL.CMD = "D3.GET-LIST " : TCL[10,9999]
+        RETURN ; * don't execute here
+      END
+    STOP ; *<<
+
+CHECK.MULTIFILE: *>>
+      IF COUNT(TCL,' ') > 2 AND FIELD(TCL,\ \,3)[1,1] # "(" THEN
+* format is either "verb file item (opts" or "verb item1 item2 (opts"
+        TEMP.PF = FIELD(TCL," ",2)
+        OPEN TEMP.PF TO FV ELSE
+* Second parameter isn't a file name. Might be item1 of multiple list names.
+* We aren't prepared for multiple lists yet.
+          OK = 0
+          RETURN
+        END
+        CURRENT.PF =  TEMP.PF ; * format is "verb file item (opts"
+      END
+    RETURN ; *<<
+
+CHECK.NUMS: *>> make sure the options are setup to get keys in atbs X-Y
+      OPTS = TRIM(OPTS)
+      FIRST = FIELD(OPTS,'-',1)
+      LAST = FIELD(OPTS,'-',2)
+      FIRSTN = OCONV(FIRST,'MCN')
+      LASTN = OCONV(LAST,'MCN')
+      IF FIRSTN = "" OR LASTN = "" THEN OK = 0 ; * not what we're expecting - fail
+    RETURN ; *<<
+
+CUSTOM.SELECT: *>>
+      GOSUB GET.PF
+      IF OK = 0 THEN RETURN
+
+      POS = 2 ; * verb id (opts
+      IF DCOUNT(TCL," ") >= 4 THEN POS = 3 ; * verb file id (opts
+      LISTID = FIELD(TCL , \ \ , POS)
+
+      READ LIST FROM FPF, LISTID ELSE
+        OK = 0
+        RETURN ; * pass back to D3 verb just in case
+      END
+
+      CT = DCOUNT(LIST,@AM)
+      IF FIRSTN = 0 THEN FIRSTN = 1
+      IF FIRSTN > CT OR LASTN = 0 OR LASTN < FIRSTN THEN ; * address D3 bug here - bad request or out of range
+        FINAL.CMD = \SELECT MD ''\ ; * cheap way to select no items
+        RETURN
+      END
+      IF LASTN > CT THEN LASTN = CT ; * this is one of the bugs, D3 v9.1 falls off the end of the list
+
+      IF FIRSTN > 32700 THEN ; * another bug, D3 v9.1 can't process X-Y where X>32k
+* Solution here is to create a new list where the desired key starts at position 1.
+* See note above about deleting these items.
+        POS = INDEX(LIST,@AM,FIRSTN-1)
+        LIST = LIST[POS+1,9999999]
+        LASTN = (LASTN - FIRSTN) + 1
+        FIRSTN = 1
+        CLEARFILE F.WORK
+        WRITE LIST ON F.WORK, LISTID
+        LISTID = MY.TEMP.FNAME : \ \ : LISTID ; * default get-list will use our temp file
+      END ELSE
+        IF CURRENT.PF # DEFAULT.PF THEN
+          LISTID = CURRENT.PF : \ \ : LISTID ; * default get-list will use originally intended file
+        END
+      END
+
+* re-write the options and pass the new command to the default command - should work OK now.
+      NEW.OPTS = " ("
+      NEW.OPTS := OCONV(FIRST,'MCA') ; * just in case another option is there
+      NEW.OPTS := FIRSTN
+      NEW.OPTS := "-"
+      NEW.OPTS := LASTN
+      NEW.OPTS := OCONV(LAST,'MCA') ; * just in case another option is there
+      NEW.TCL = "D3.GET-LIST " : LISTID : NEW.OPTS
+*    Now go back in case there are yet more functions to process
+    RETURN ; *<<
+
+GET.UNIQUE: *>> get only the unique IDs
+      GOSUB GET.PF ; * might have changed
+      IF OK = 0 THEN RETURN
+
+      POS = 2 ; * verb id (opts
+      IF DCOUNT(TCL," ") >= 4 THEN POS = 3 ; * verb file id (opts
+      LISTID = FIELD(TCL , \ \ , POS)
+      LIST = ""
+      READ LIST FROM FPF,LISTID ELSE
+        OK = 0
+        RETURN ; * pass back to D3 verb just in case
+      END
+
+      CLEARFILE F.WORK ; * work file might be the pointer-file so we just deleted the list that we just read - no problem
+      IF FIRSTN = "" OR FIRSTN = 0 THEN FIRSTN = 1
+      IF LASTN = "" THEN LASTN = DCOUNT(LIST,@AM)
+      FOR N= FIRSTN TO LASTN
+        ID = LIST<N>
+* Don't just write the item, set the lowest sequence number so that
+* when we select it's in the same order as in the list, otherwise it will
+* be the hash order of the ID in the work file.
+        READ X FROM F.WORK  ,ID ELSE
+          WRITE N'R%9' ON F.WORK,ID
+        END
+      NEXT N
+      NEW.TCL = \SSELECT \ : MY.TEMP.FNAME : " BY A1"
+*    Now go back in case there are yet more functions to process
+    RETURN ; *<<
+
+GET.PF: *>>
+      OPEN CURRENT.PF TO FPF ELSE ; * Pointer file may not be synonymous with PF !
+        IF CURRENT.PF = DEFAULT.PF THEN ; * fall back on PF if there is no pointer-file
+          OPEN "PF" TO FPF ELSE
+            OK = 0
+            RETURN ; * leave it to the D3 verb to figure this out
+          END
+        END ELSE
+          OK = 0 ; * specified file doesn't exist
+          RETURN ; * leave it to the D3 verb to figure this out
+        END
+      END
+    RETURN ; *<<
+
+GET.WORK.FILE: *>>
+* Start by making sure we have a dict for work file
+
+* Something is really wrong if we can't create files. Falling into debug will get
+* someone's attention more than returning null or bad data.
+* If someone does a G to continue from debug it will abort again later, so
+* the baseline code here does a STOP just to avoid that.
+
+      OPEN \DICT \ : TEMP.FNAME TO F.WORK ELSE
+        IF CMODE = 1 THEN ; *  only create file if ( C ) option is used
+          EXECUTE \CREATE-FILE DICT \ : TEMP.FNAME : \ 1 (FQTX\ CAPTURING OUT RETURNING ERR
+        END
+        OPEN \DICT \ : TEMP.FNAME TO F.WORK ELSE
+          OK = -1 ; * we tried, time to bail ( -1 indicates failure on dict )
+
+          CRT "No temp file for this port: " : TEMP.FNAME
+          DEBUG
+          STOP ; * see coments above, remove debug/stop if you wish but handle the issue
+          RETURN
+        END
+      END
+* Dict is there, what about data file for this port?
+      OPEN MY.TEMP.FNAME TO F.WORK ELSE ; * yes, we re-use the file variable - it's OK
+        IF CMODE = 1 THEN  ; *  only create file if ( C ) option is used
+          EXECUTE \CREATE-FILE \ : MY.TEMP.FNAME : \ 1001 (FQTX\ CAPTURING OUT RETURNING ERR
+        END
+        OPEN MY.TEMP.FNAME TO F.WORK ELSE
+          OK = -2 ; * we tried, time to bail ( -2 indicates failure on data )
+
+          CRT "No temp file for this port: " : MY.TEMP.FNAME
+          DEBUG
+          STOP ; * see coments above, remove debug/stop if you wish but handle the issue
+          RETURN
+        END
+      END
+    RETURN ; *<<
