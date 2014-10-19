@@ -1,0 +1,243 @@
+
+      * ACCOUNT-COPY: Easily copy account in D3Windows without tape commands
+
+
+
+      * Tony Gravagno, Nebula Research and Development
+      * http://Nebula-RnD.com
+      *
+      * Open Source v1.0.0 : 19-October-2014
+
+      * See https://bitbucket.org/foss4mv/nebulafreeware for:
+      * License
+      * Wiki (Usage, notes, setup, details, platform info, etc)
+      * Issue Tracker
+      * Latest Release
+      * and to contribute your changes back to Free and Open Source Software!
+
+      * If you make enhancements, please send the code back to
+      * FOSS4MV so that everyone benefits.
+
+      * Mods: Use [000] Initials Date Description
+      *           Number in braces is the tracker ID or -nn if no tracker.
+      * [-001] 19-OCT-2014 TG Ported to FOSS4MV
+      *
+
+      * Comments with *>> and *<< are for AccuTerm code folding.
+      
+      * Usage: ACCOUNT-COPY fromAcct toAcct
+      * or just use verb to get prompted
+      
+      * Enhancement options for this code (volunteers welcome) :
+      * - Language localization
+      * - Better verification of valid account names
+      * - Allow for D3 Linux/Unix, currently Windows-only
+      * - Process options from command line:
+      * - - avoid generating indexes
+      * - - delete pseudo file after operation
+      * - - move/copy pseudo file after operation
+      * - - logging
+      * - - copy between FSI and VME
+      * - - suppress or add Please Wait messages
+
+
+      * Site-specific data:
+      equate PSEUDO to "C:\TEMP\CPYTMP.d3p,p"
+      equate KEYWORD to "CPYTMP" ; * used to find unique device
+      
+      * emsg has error message to display on exit, minimize CRT statements in-line
+      emsg = ""
+      * Need mds file to verify account existence
+      open "mds,," to fmds else stop 201,"mds,,"
+      * asource and atarget are account names
+      asource = ""
+      atarget = ""
+      * success is 0 for failure, 1 for OK, set in subroutines
+      success = 0
+      
+      * parse the command line for account names
+      gosub get.cmd.data
+      if success = 0 then ;* should be 1 to continue
+         if emsg # "" then crt emsg
+         stop
+      end
+      success = 0
+      gosub main
+      if success then crt "Successfully copied account" else crt emsg
+      stop
+
+main: *>>
+      gosub detach.device
+      gosub get.device
+      if emsg # "" then return
+
+      * we have the device
+      gosub get.device.number
+      if emsg # "" then return
+
+      if asource = "" then
+         gosub get.and.confirm.accounts
+         if emsg # "" then return
+      end
+
+      crt "Saving account. Please wait."
+      gosub save.account
+      gosub rewind.device
+      crt "Restoring account. Please wait."
+      gosub restore.account
+      gosub rewind.device
+      gosub detach.device
+      gosub remove.device
+      crt "Generating indexes. Please wait."
+      gosub generate.indexes
+      success = 1
+      return ; *<<
+
+get.cmd.data: *>>
+         * Parse the command line for account names and options
+         tclread cmd
+         cmd = trim(cmd)
+         if index(cmd,"(",1) then
+            opts = field(cmd,"(",2) ; * not doing anything with options yet
+            cmd = trim(field(cmd,"(",1)) ; * command without options
+         end
+         * Adjust this if using different verbs
+         if cmd[1,12] = "ACCOUNT-COPY" then
+            asource = field(cmd," ",2)
+            if asource # "" then
+               read ptr from fmds,asource else
+                  emsg = "Source account doesn't exist"
+                  return
+               end
+               atarget = field(cmd," ",3)
+               if atarget = "" then
+                  emsg = "Target account not specified"
+                  return
+               end
+               read ptr from fmds,atarget then
+                  emsg = "Target account already exists"
+                  return
+               end
+            end
+         end
+         success = 1 ; * OK to continue
+      return ; *<<
+
+get.and.confirm.accounts: *>>
+         * Only executed if the command line doesn't include account names.
+         * This code doesn't re-prompt if bad accounts are added.
+         * It simply exits.
+         * But if the account names are valid, Then we ask for confirmation.
+         crt "Source Account Name ":
+         input asource
+         read ptr from fmds,atarget else
+            emsg = "Source account doesn't exist."
+            return
+         end
+         crt "Target Account Name ":
+         input atarget
+         * We're not doing a lot of validation
+         if trim(atarget) = "" then
+            emsg = "Target account must be specified"
+            return
+         end
+         read ptr from fmds,atarget then
+            emsg = "Target account already exists."
+            return
+         end
+         crt
+         crt "Confirming source is '":asource:"' and target is '":atarget:"' ":
+         loop
+            crt "(Y/N) ":
+            input yn
+         until yn[1,1] = "y" or yn[1,1] = "n" do repeat
+         if yn[1,1] = "n" then emsg = "Terminating"
+      return ; *<<
+
+detach.device: *>>
+         cmd = "t-det"
+         execute cmd capturing out returning err
+      return ; *<<
+
+get.device: *>>
+         * first, see if the pseudo device is already in the list
+         gosub check.existing.device
+         if not(texists) then
+            * it's not, so add it
+            gosub create.device
+            * did that go OK?
+            if not(tcreated) then
+               emsg = "Failure: Could not create pseudo device."
+               return
+            end
+            * it should be there now ... is it?
+            gosub check.existing.device
+            * oops, no, something bad happened
+            if not(texists) then
+               emsg = "Failure: Could not access pseudo device after creation."
+               return
+            end
+         end
+      return ; *<<
+
+create.device: *>>
+         cmd = 'dev-make -t tape -a "' : PSEUDO : '"'
+         execute cmd capturing out returning err
+         if index(out,"| ":PSEUDO,1) then tcreated = 1 else tcreated = 0
+      return ; *<<
+
+remove.device: *>>
+         * remove the device, just to clean up the device list
+         cmd = "dev-remov m":dnum
+         execute cmd capturing out returning err
+      return ; *<<
+
+rewind.device: *>>
+         cmd = "t-rew"
+         execute cmd capturing out returning err
+      return ; *<<
+
+get.device.number: *>>
+         * There doesn't seem to be a command or function which returns the currently
+         * attached tape device. So we need to use list-device and parse the output
+         * for the required data.
+         cmd = "list-device"
+         execute cmd capturing out returning err
+         pos = index(out, @pib:"*+", 1)
+         dnum = -1 ; * dnum is the device number returned to the calling code
+         if pos > 0 then
+            out = out[1,pos] ;* just get attributes to the one that has this port
+            lnum = dcount(out,@am) ;* now get the attribute count, we want last one
+            dnum = trim( field( out<lnum>, "|", 1) ) ; * first part of this line has device ID
+         end
+         if not(num(dnum)) or dnum < 0 then
+            emsg = "Failed to retrieve device ID of temporary pseudo. Terminating"
+         end
+      return ; *<<
+
+save.account: *>>
+         cmd = "account-save ":asource
+         execute cmd capturing out returning err
+      return ; *<<
+
+restore.account: *>>
+         cmd = "account-restore ":atarget:" (zg"
+         cmd<1,-1> = asource
+         execute cmd capturing out returning err
+      return ; *<<
+
+generate.indexes: *>>
+         cmd = "nt_indexer ":atarget
+         execute cmd capturing out returning err
+         * There's a bug in NT_INDEXER which displays file names
+         * even if we suppress them here.
+      return ; *<<
+
+check.existing.device: *>>
+         cmd = "t-select ":KEYWORD
+         execute cmd capturing out returning err
+         if err = 1705 then texists = 1 else texists = 0
+      return ; *<<
+
+      
+      end

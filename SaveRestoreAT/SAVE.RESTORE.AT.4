@@ -1,0 +1,99 @@
+      * SAVE.RESTORE.AT Part 4
+4010  * Get Status of transfer from Accuterm
+      * You don't want to run through this code in debug or it will fail
+      CRT EXL:STATUS:
+      PROMPT ""
+      INPUT RESULT
+      PROMPT "?"
+      * OK to restart debugging here
+      IF DEBUGGING = 1 THEN DEBUG ; * set var manually in debug if desired
+      *
+      SUCCESS = INDEX(RESULT,": 0",1)
+      RESULT.CODE = FIELD(TRIM(RESULT),' ',2)
+      *
+      IF SUCCESS = 0 THEN
+         IF NOF.OK # 1 THEN
+            LOG.DATA = "Transfer failed. Result code (":RESULT.CODE:")"
+            GOSUB 5000
+            DONE = 1
+         END
+      END
+      RETURN
+      *
+4030  * Setup new run for save or restore
+      DELETE F.MD,'LAST.RUN'
+      LAST.RUN = ''
+      LOOP
+         * Enter account name as it will be stored in intermediate files
+         CRT @(1,5):EOL:"Account reference name, or N/L to exit) ":
+         INPUT ACCT
+         IF ACCT = '' THEN  ; * option to cancel
+            DONE = 1
+            RETURN
+         END
+         LOOP
+            CRT @(1,6):EOL:"Path ":
+            INPUT BASE.PATH
+            IF BASE.PATH = '' THEN  ; * option to cancel
+               DONE = 1
+               RETURN
+            END
+            IF BASE.PATH[2,1] # ":" THEN
+               CRT ERL:"Path must include x:\ drive reference":
+               BASE.PATH = ''
+            END
+         UNTIL BASE.PATH # '' DO REPEAT
+         IF BASE.PATH'R%1' = '\' THEN
+            BASE.PATH = BASE.PATH[1,LEN(BASE.PATH)-1]
+         END
+         * BASE.PATH should look like "c:\temp\mvbackup"
+         CRT @(1,7):EOL:"Confirm ": BASE.PATH :"\": ACCT :" (Y/N/(E)xit) ":
+         INPUT YN,1
+         IF YN = '' THEN YN = 'N'
+      UNTIL INDEX("YE",YN,1)>0 DO REPEAT
+      IF YN = "E" THEN
+         DONE = 1
+         RETURN
+      END
+      LAST.RUN<1> = ACCT
+      LAST.RUN<2> = BASE.PATH
+      LAST.RUN<3> = 1 ; * Start save in meta item atb 1
+      NEXT.FILE.PTR = LAST.RUN<3>
+      WRITE LAST.RUN ON F.MD,'LAST.RUN'
+      RETURN
+      *
+4040  * Setup to continue from last run
+      NEW = 0
+      * Get save status
+      * See if we can continue from a prior run
+      * LAST.RUN:
+      * 1= Account name being processed
+      * 2= Base path where data is saved (base/Account/files...)
+      * 3= Pointer to attribute in metadata, next file to be saved
+      READ META FROM F.MD,'SAVE.RESTORE.META' ELSE META = ''
+      READ LAST.RUN FROM F.MD,'LAST.RUN' ELSE LAST.RUN = ''
+      ACCT = LAST.RUN<1>
+      BASE.PATH = LAST.RUN<2>
+      IF RESTART = 1 THEN
+         LAST.RUN<3> = 1 ; * Start save in meta item atb 1
+      END
+      RETURN
+      *
+4100  * Save d-pointer data in META.DATA
+      META.DATA<1,3> = MODULO
+      META.DATA<1,10> = PTR<10>
+      FOR ATB = 5 TO 6
+         *~      #IF R83,AP,D3
+         FROM.STRING = VM
+         TO.STRING = SM
+         SOURCE.STRING = PTR<ATB>
+         GOSUB 5100
+         META.DATA<1,ATB> = TARGET.STRING
+         TARGET.STRING = ""
+         *~      #END
+         *~      #IF JB,QM,U2
+         *~      META.DATA<1,ATB> = CHANGE(PTR<ATB>,VM,SM)
+         *~      #END
+      NEXT ATB
+      RETURN
+      *

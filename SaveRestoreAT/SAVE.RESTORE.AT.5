@@ -1,0 +1,194 @@
+      * SAVE.RESTORE.AT Part 5
+5000  * Continually update log with current activity
+      IF DCOUNT(LOG.DATA,AM) = 1 THEN
+         * Add time stamp In block of text
+         LOG.DATA = OCONV(DATE(),'D2/'):" ":OCONV(TIME(),'MTS'):" ":LOG.DATA
+      END ELSE
+         * Add time stamp Before block of text
+         LOG<-1> = OCONV(DATE(),'D2/'):" ":OCONV(TIME(),'MTS')
+      END
+      * Add the text to the log
+      LOG<-1>= LOG.DATA
+      * Write the log as we go
+      WRITE LOG ON F.LOGS,LOG.ID:"*LOG"
+      RETURN
+      *
+5100  * Replace text in a string
+      * R83 and AP don't have CHANGE/SWAP, etc
+      *
+      * Input: Source.String, From.String, To.String
+      * Output: Target.String
+      TARGET.STRING = ""
+      POS = 1
+      LFROM = LEN(FROM.STRING)
+      LTO = LEN(TO.STRING)
+      LOOP
+         FOUND.POS = INDEX(SOURCE.STRING,FROM.STRING,1)
+      WHILE FOUND.POS > 0 DO
+         FRONT = ""
+         BACK = ""
+         IF FOUND.POS > 1 THEN FRONT = SOURCE.STRING[1,FOUND.POS-1]
+         IF FOUND.POS # LEN(SOURCE.STRING) THEN
+            BACK = SOURCE.STRING[FOUND.POS+LFROM,99999999]; * 99MB enough?
+         END
+         TARGET.STRING = TARGET.STRING:FRONT:TO.STRING
+         SOURCE.STRING = BACK
+      REPEAT
+      * Exit this code with Target.String only, no data in memory
+      TARGET.STRING = TARGET.STRING:SOURCE.STRING
+      SOURCE.STRING = ""
+      FRONT = ""
+      BACK = ""
+      FROM.STRING = ""
+      TO.STRING = ""
+      RETURN
+      *
+5200  * Filter bad chars from PATH
+      ORIG.PATH = PATH
+      *~#IF R83,AP,D3
+      FROM.STRING = "*"
+      TO.STRING = "_AST_"
+      SOURCE.STRING = PATH
+      GOSUB 5100
+      FROM.STRING = "\"
+      TO.STRING = "_BSL_"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      FROM.STRING = "/"
+      TO.STRING = "_FSL_"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      FROM.STRING = "?"
+      TO.STRING = "_QMK_"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      FROM.STRING = ":"
+      TO.STRING = "_COL_"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      FROM.STRING = "&"
+      TO.STRING = "_AMP_"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      FROM.STRING = "|"
+      TO.STRING = "_PIPE_"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      *~#END
+      *~#IF JB,QM,U2
+      *~    SOURCE.STRING = PATH
+      *~    TARGET.STRING = PATH
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"*","_AST_")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"\","_BSL_")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"/","_FSL_")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"?","_QMK_")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,":","_COL_")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"&","_AMP_")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"|","_PIPE_")
+      *~#END
+      IF TARGET.STRING # ORIG.PATH THEN
+         LOG.DATA = "Changing path from/to"
+         LOG.DATA<2> = PATH
+         LOG.DATA<3> = TARGET.STRING
+         GOSUB 5000
+         PATH = TARGET.STRING
+      END
+      TARGET.STRING = ""
+      ORIG.PATH = ""
+      RETURN
+      *
+5210  * Filter bad chars back into PATH
+      ORIG.PATH = PATH
+      *~#IF R83,AP,D3
+      FROM.STRING = "_AST_"
+      TO.STRING = "*"
+      SOURCE.STRING = PATH
+      GOSUB 5100
+      FROM.STRING = "_BSL_"
+      TO.STRING = "\"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      FROM.STRING = "_FSL_"
+      TO.STRING = "/"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      FROM.STRING = "_QMK_"
+      TO.STRING = "?"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      FROM.STRING = "_COL_"
+      TO.STRING = ":"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      FROM.STRING = "_AMP_"
+      TO.STRING = "&"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      FROM.STRING = "_PIPE_"
+      TO.STRING = "|"
+      SOURCE.STRING = TARGET.STRING
+      GOSUB 5100
+      *~#END
+      *~#IF JB,QM,U2
+      *~    SOURCE.STRING = PATH
+      *~    TARGET.STRING = PATH
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"_AST_","*")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"_BSL_","\")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"_FSL_","/")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"_QMK_","?")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"_COL_",":")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"_AMP_","&")
+      *~    TARGET.STRING = CHANGE(TARGET.STRING,"_PIPE_","|")
+      *~#END
+      IF TARGET.STRING # ORIG.PATH THEN
+         LOG.DATA = "Changing path from/to"
+         LOG.DATA<2> = PATH
+         LOG.DATA<3> = TARGET.STRING
+         GOSUB 5000
+         PATH = TARGET.STRING
+      END
+      TARGET.STRING = ""
+      ORIG.PATH = ""
+      RETURN
+      *
+5310  * Remove known verbs prior to restore
+      *~#IF XD3
+      *~  CMD = "DELETE MD DL SL EL GL DATE"
+      *~  EXECUTE CMD CAPTURING OUT
+      *~#END
+      RETURN
+      *
+5410  * MIGRATION.LOGS dict items
+      * Just write new ones, don't over-write if they've been modified
+      OPEN "DICT MIGRATION.LOGS" TO FD.LOGS ELSE
+         STOP 201,"DICT MIGRATION.LOGS"
+      END
+      *
+      * F-type is used because R83 doesn't support others
+      * use XBASIC coding here to replace F with A or I if desired
+      ADI.ID="KEY"
+      READ ADI FROM FD.LOGS,ADI.ID ELSE
+         ADI="A~0~~~~~~~L~20"
+         WRITE ADI ON FD.LOGS,ADI.ID
+      END
+      ADI.ID="ACCOUNT"
+      READ ADI FROM FD.LOGS,ADI.ID ELSE
+         ADI="A~1~~~~~~F;1;C1;0(G2*1);CLAST.RUN;=;C7;*;[]~L~7"
+         WRITE ADI ON FD.LOGS,ADI.ID
+      END
+      ADI.ID="DATE"
+      READ ADI FROM FD.LOGS,ADI.ID ELSE
+         ADI="A~0~~~~~D2/~G0*1~R~8"
+         WRITE ADI ON FD.LOGS,ADI.ID
+      END
+      ADI.ID="TIME"
+      READ ADI FROM FD.LOGS,ADI.ID ELSE
+         ADI="A~0~~~~~MTS~G1*1~R~8"
+         WRITE ADI ON FD.LOGS,ADI.ID
+      END
+      ADI.ID="TYPE"
+      READ ADI FROM FD.LOGS,ADI.ID ELSE
+         ADI="A~0~~~~~~G2*1~L~12"
+         WRITE ADI ON FD.LOGS,ADI.ID
+      END
+      RETURN

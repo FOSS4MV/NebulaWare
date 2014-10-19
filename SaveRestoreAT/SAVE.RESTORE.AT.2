@@ -1,0 +1,325 @@
+      * SAVE.RESTORE.AT Part 2
+2000  * Save an account
+      GOSUB 2020 ; * Start new save, or continue last?
+      IF DONE = 1 THEN RETURN
+      * TG 2012/02/09 Save meta item to log
+      WRITE META ON F.LOGS,LOG.ID:"*META"
+      WRITE LAST.RUN ON F.LOGS,LOG.ID:"*LAST.RUN"
+      *
+      * Loop through meta data to save 'next' file
+      IF NOT(NUM(LAST.RUN<3>)) THEN
+         LOG.DATA = "LAST.RUN not pointing to valid NEXT.FILE (atb3)"
+         GOSUB 5000
+         RETURN
+      END
+      NEXT.FILE.PTR = LAST.RUN<3>
+      *
+      LOOP
+         META.DATA = META<NEXT.FILE.PTR>
+         IF META.DATA = '' THEN
+            FINISHED = 1
+            DONE = 1
+         END ELSE
+            DICT.NAME = META.DATA<1,1>
+            IF DICT.NAME[1,1] = "*" THEN
+               * Skip this file per manual mod to meta file
+            END ELSE
+               DATA.NAME = META.DATA<1,2>
+               IF DATA.NAME = '' THEN
+                  GOSUB 2310 ; * Save non-pointer items from dict
+               END ELSE
+                  GOSUB 2320 ; * Save all items in data file
+               END
+            END
+         END
+      UNTIL DONE = 1 DO
+         NEXT.FILE.PTR = NEXT.FILE.PTR + 1
+         LAST.RUN<3> = NEXT.FILE.PTR
+         WRITE LAST.RUN ON F.MD,'LAST.RUN'
+      REPEAT
+      RETURN
+      *
+2015  * Clear target dir?
+      * MOD-002 Added this prompt
+      IF NEXT.FILE.PTR = 1 THEN
+         LOOP
+            CRT @(1,7):EOL:"Please clear target directory and respond 'OK' or (E)xit ":
+            INPUT OK
+         UNTIL OK = "OK" OR OK = "E" DO
+            IF OK = "E" THEN DONE = 1
+         REPEAT
+      END
+      RETURN
+      *
+2020  * Start new save, or continue last?
+      ACCT = ''
+      RESTART = 0
+      LOOP
+         DONE.OPT = 1
+         CRT @(1,4):EOL:"(N)ew, (C)ontinue, (R)estart, (E)xit ":
+         INPUT OPT,1
+         BEGIN CASE
+            CASE OPT = 'N'
+               GOSUB 4030 ; * Setup new run
+               IF DONE = 0 THEN GOSUB 2050 ; * Create required directories
+               IF DONE = 0 THEN GOSUB 2200 ; * Save metadata for files in MD
+               IF DONE = 0 THEN GOSUB 2025 ; * exit?
+               IF DONE = 0 THEN GOSUB 2015 ; * Just in case, ask user to clear dir
+               IF DONE = 0 THEN GOSUB 2100 ; * Save MD with meta data for files
+            CASE OPT = 'C' OR OPT = 'R'
+               IF OPT = 'R' THEN RESTART = 1
+               IF OPT = 'C' THEN CONTINUING = 1 ; * not used for save yet
+               GOSUB 4040 ; * Setup continue from last run
+               IF ACCT = '' THEN
+                  CRT @(1,6):EOL:"No prior run to continue"
+                  DONE = 1
+               END ELSE
+                  IF RESTART = 1 THEN
+                     GOSUB 2050 ; * Just in case, try to create directories
+                     GOSUB 2015 ; * Just in case, ask user to clear dir
+                  END
+                  * Save MD again, MD isn't saved if we Exit/Continue
+                  * [-006] added check for Done below
+                  IF DONE = 0 THEN GOSUB 2100 ; * Save MD with meta data for files
+               END
+            CASE OPT = 'E' OR OPT = ''
+               DONE = 1
+            CASE 1
+               DONE.OPT = 0
+         END CASE
+      UNTIL DONE = 1 OR DONE.OPT = 1 DO REPEAT
+      RETURN
+      *
+2025  * Review?
+      * MOD-001 Added this prompt
+      LOOP
+         CRT @(1,7):EOL:"Exit to review metadata? (Y/N)":
+         INPUT YN,1
+      UNTIL YN = "Y" OR YN = "N" DO REPEAT
+      IF YN = "Y" THEN DONE = 1
+      RETURN
+      *
+2050  *
+      CMD.CREATE.BASE = ESC:STX:\>mkdir "\:BASE.PATH:\"\
+      CRT EXL: CMD.CREATE.BASE:CR:
+      CMD.CREATE.ACCOUNT = CMD.CREATE.BASE:"\":ACCT
+      CRT EXL: CMD.CREATE.ACCOUNT:CR:
+      RETURN
+      *
+2100  * Save MD
+      * Copy all MD items to file with MVD0 extension (level 0)
+      LOG.DATA = "Copying ":MDICT:" items to MVD0"
+      GOSUB 5000
+      CRT EXL:LOG.DATA:
+      *~ #IF R83,AP,D3,JB
+      CMD = \SSELECT MD WITH *A1 NOT "D" AND NOT "DX" AND NOT "DY" AND NOT "DC"\
+      *~ #END
+      *~ #IF QM,U2
+      *~** Correct and test
+      *~ DEBUG
+      *~ CMD = \SSELECT VOC WITH F1 NOT "D" AND NOT "DX" AND NOT "DY"\
+      *~ #END
+      EXECUTE CMD RETURNING ERR
+      IF ERR = 401 THEN
+         LOG.DATA = "No files in MD?"
+         GOSUB 5000
+         RETURN
+      END
+      PATH = BASE.PATH:"\":ACCT:"\___.MVD0"
+      CRT EXL:EOS:
+      DATA "S"
+      DATA MDICT
+      DATA "*"
+      DATA "I"
+      DATA PATH
+      EXECUTE "FTPICK"
+      GOSUB 4010 ; * Get Status of transfer from Accuterm
+      RETURN
+      *
+2200  * Select Dict files
+      CRT EXL:\Selecting MD for files...\:EOL:
+      *~ #IF R83,AP,D3,JB
+      CMD = \SSELECT MD WITH *A1 = "D" OR "DC" OR "DY"\ ; * [-012]
+      *~ #END
+      *~ #IF QM,U2
+      *~** Correct and test
+      *~ DEBUG
+      *~ CMD = \SSELECT VOC WITH F1 = "D" OR "DY"\
+      *~ #END
+      EXECUTE CMD RETURNING ERR
+      IF ERR = 401 THEN
+         LOG.DATA = "No files in ":MDICT:"?"
+         GOSUB 5000
+         RETURN
+      END
+      LIST.OF.DICTS = '' ; * required because we have multiple selects open
+      DONE.DICTS = 0
+      LOOP
+         READNEXT DICT.NAME ELSE DONE.DICTS = 1
+      UNTIL DONE.DICTS = 1 DO
+         LIST.OF.DICTS<-1> = DICT.NAME
+      REPEAT
+      DICT.COUNT = DCOUNT(LIST.OF.DICTS,AM)
+      FOR DICT.NUM = 1 TO DICT.COUNT
+         * PTR var is re-used later, don't count on it being ptr to dict
+         DICT.NAME = LIST.OF.DICTS<DICT.NUM>
+         READ PTR FROM F.MD,DICT.NAME THEN
+            GOSUB 2210
+         END ELSE NULL ; * Can't stop for bad items
+      NEXT DICT.NUM
+      WRITE META ON F.MD,'SAVE.RESTORE.META'
+      RETURN
+      *
+2210  * Process Dict D-pointer
+      MODULO = PTR<3>
+      SEP = PTR<4>
+      IF NOT(NUM(MODULO)) THEN
+         LOG.DATA = MDICT:" item ":DICT.NAME:" doesn't have numeric modulo"
+         GOSUB 5000
+         RETURN
+      END
+      IF SEP = '' THEN SEP = 1 ; * possible...
+      IF NOT(NUM(SEP)) THEN
+         LOG.DATA = MDICT:" item ":DICT.NAME:" doesn't have numeric separation"
+         GOSUB 5000
+         RETURN
+      END
+      MODULO = MODULO * SEP ; * since platforms are different, new files won't have sep
+      META.DATA = DICT.NAME
+      * Leave v2 empty, reserved for data pointers
+      GOSUB 4100 ; * Save d-pointer data in META.DATA
+      META<-1> = META.DATA
+      *
+      GOSUB 2250 ; * Get data files for this dict
+      RETURN
+      *
+2250  * Select Data files
+      CRT EXL:\Selecting DICT \:DICT.NAME:\ for data files...\:EOL:
+      *~ #IF R83,AP,D3
+      CMD = \SSELECT DICT \:DICT.NAME:\ WITH *A1 = "D" OR "DY"\
+      *~ #END
+      *~ #IF QM,U2
+      *~** Correct and test
+      *~ DEBUG
+      *~ CMD = \SSELECT DICT \:DICT.NAME:\ WITH *A1 = "D" OR "DY"\
+      *~ #END
+      EXECUTE CMD RETURNING ERR
+      IF ERR = 401 THEN
+         LOG.DATA = "No data files for dict ":DICT.NAME
+         GOSUB 5000
+         RETURN
+      END
+      OPEN 'DICT ':DICT.NAME TO F.DICT ELSE
+         LOG.DATA = "Can't open dict ":DICT.NAME
+         GOSUB 5000
+         CRT ERL:LOG.DATA:
+         RETURN
+      END
+      *
+      LIST.OF.DATAS = '' ; * required because we have multiple selects open
+      DONE.DATA = 0
+      LOOP
+         READNEXT DATA.NAME ELSE DONE.DATA = 1
+      UNTIL DONE.DATA = 1 DO
+         LIST.OF.DATAS<-1> = DATA.NAME
+      REPEAT
+      *
+      DATA.COUNT = DCOUNT(LIST.OF.DATAS,AM)
+      FOR DATA.NUM = 1 TO DATA.COUNT
+         DATA.NAME = LIST.OF.DATAS<DATA.NUM>
+         READ PTR FROM F.DICT,DATA.NAME THEN
+            GOSUB 2260
+         END ELSE
+            * Can't stop for bad items
+            LOG.DATA = "Can't read ":DICT.NAME:",":DATA.NAME
+            GOSUB 5000
+            CRT ERL:LOG.DATA:
+         END
+      NEXT DATA.NUM
+      RETURN
+      *
+2260  * Process Data D-pointer
+      MODULO = PTR<3>
+      SEP = PTR<4>
+      IF NOT(NUM(MODULO)) THEN
+         LOG.DATA = "Dict item ":DICT.NAME:",":DATA.NAME:" doesn't have numeric modulo"
+         GOSUB 5000
+         RETURN
+      END
+      IF SEP = '' THEN SEP = 1 ; * possible...
+      IF NOT(NUM(SEP)) THEN
+         LOG.DATA = "Dict item ":DICT.NAME:",":DATA.NAME:" doesn't have numeric separation"
+         GOSUB 5000
+         RETURN
+      END
+      MODULO = MODULO * SEP ; * since platforms are different, new files won't have sep
+      META.DATA = DICT.NAME
+      META.DATA<1,2> = DATA.NAME
+      GOSUB 4100 ; * Save d-pointer data in META.DATA
+      META<-1> = META.DATA
+      RETURN
+      *
+2310  *
+      LOG.DATA = "Saving dict ":DICT.NAME
+      GOSUB 5000
+      CRT EXL:EOS:LOG.DATA:
+      *~ #IF R83,AP,D3
+      CMD = \SSELECT DICT \:DICT.NAME:\ WITH *A1 NOT "D" AND NOT "DX" AND NOT "DY"\
+      *~ #END
+      *~ #IF QM,U2
+      *~** Correct and test
+      *~ DEBUG
+      *~ CMD = \SSELECT DICT \:DICT.NAME:\ WITH F1 NOT "D" AND NOT "DX" AND NOT "DY"\
+      *~ #END
+      EXECUTE CMD RETURNING ERR
+      IF ERR = 401 THEN
+         LOG.DATA = "No items in dict ":DICT.NAME
+         GOSUB 5000
+         RETURN
+      END
+      PATH = DICT.NAME
+      GOSUB 5200 ; * Filter bad chars from file name only
+      PATH = BASE.PATH:"\":ACCT:"\":PATH:".MVD1"
+      DATA "S"
+      DATA "DICT ":DICT.NAME
+      DATA "*"
+      DATA "I"
+      DATA PATH
+      EXECUTE "FTPICK"
+      GOSUB 4010 ; * Get Status of transfer from Accuterm
+      RETURN
+      *
+2320  *
+      LOG.DATA = "Saving data ":DICT.NAME:",":DATA.NAME
+      GOSUB 5000
+      CRT EXL:EOS:LOG.DATA:
+      PATH = DICT.NAME : DELIM1 : DATA.NAME
+      GOSUB 5200 ; * Filter bad chars from file name only
+      PATH = BASE.PATH:"\":ACCT:"\":PATH:".MVD2"
+      OPEN DICT.NAME:",":DATA.NAME TO F.DATA ELSE
+         LOG.DATA = "Can't open data ":DICT.NAME:",":DATA.NAME
+         GOSUB 5000
+         CRT ERL:LOG.DATA:
+         RETURN
+      END
+      SELECT F.DATA
+      READNEXT NO.USED ELSE
+         LOG.DATA = "No items in data ":DICT.NAME:",":DATA.NAME
+         GOSUB 5000
+         CRT ERL:LOG.DATA:
+         RETURN
+      END
+      *
+      DATA "S"
+      IF DICT.NAME = DATA.NAME THEN
+         DATA DATA.NAME
+      END ELSE
+         DATA DICT.NAME:",":DATA.NAME
+      END
+      DATA "*"
+      DATA "I"
+      DATA PATH
+      EXECUTE "FTPICK"
+      GOSUB 4010 ; * Get Status of transfer from Accuterm
+      RETURN
+      *

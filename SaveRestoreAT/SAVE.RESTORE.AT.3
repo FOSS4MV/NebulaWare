@@ -1,0 +1,300 @@
+      * SAVE.RESTORE.AT Part 3
+3000  * Restore an account
+      GOSUB 3010 ; * Work out difference in modulo between systems
+      IF DONE = 1 THEN RETURN
+      GOSUB 3020 ; * Start new restore, or continue last?
+      IF DONE = 1 THEN RETURN
+      * Loop through meta data to save 'next' file
+      IF NOT(NUM(LAST.RUN<3>)) THEN
+         LOG.DATA = "LAST.RUN not pointing to valid NEXT.FILE (atb3)"
+         GOSUB 5000
+         RETURN
+      END
+      NOF.OK = 1 ; * We're restoring and we know some files were empty
+      NEXT.FILE.PTR = LAST.RUN<3>
+      LOOP
+      DEBUG
+         META.DATA = META<NEXT.FILE.PTR>
+         IF META.DATA = '' THEN
+            FINISHED = 1
+            DONE = 1
+         END ELSE
+            DICT.NAME = META.DATA<1,1>
+            IF DICT.NAME[1,1] = "*" THEN
+               * Remove "do not save" flag which may be left over from last save
+               DICT.NAME = DICT.NAME[2,999]
+            END
+            DATA.NAME = META.DATA<1,2>
+            IF DATA.NAME[1,1] = "*" THEN
+               * Remove "do not save" flag which may be left over from last save
+               DATA.NAME = DATA.NAME[2,999]
+            END
+            MODULO = META.DATA<1,3>
+            * [-004] START
+            RETURN.AFTER.CREATE = 0
+            IF DICT.NAME[1,1] = "!" THEN
+               RETURN.AFTER.CREATE = 1
+               DICT.NAME = DICT.NAME[2,999]
+            END
+            IF DATA.NAME[1,1] = "!" THEN
+               RETURN.AFTER.CREATE = 1
+               DATA.NAME = DATA.NAME[2,999]
+            END
+            * [-004] END
+            IF DATA.NAME = '' THEN
+               GOSUB 3310 ; * Restore non-pointer items to dict
+            END ELSE
+               GOSUB 3320 ; * Restore all items in data file
+            END
+         END
+      UNTIL DONE = 1 DO
+         NEXT.FILE.PTR = NEXT.FILE.PTR + 1
+         LAST.RUN<3> = NEXT.FILE.PTR
+         WRITE LAST.RUN ON F.MD,'LAST.RUN'
+      REPEAT
+      RETURN
+      *
+3010  * Work out difference in modulo between systems
+      *
+      LOOP
+         CRT @(1,4):EOS:"Example: value 4 means original mod/4, so 101=25.5=25"
+         CRT @(1,3):EOL:"Modulo re-factor or (E)xit ":
+         INPUT REFACTOR
+         OK = 0
+         IF REFACTOR = "E" THEN
+            OK = 1
+            DONE = 1
+         END ELSE ; * [-011]
+            IF NUM(REFACTOR) AND REFACTOR # "" AND REFACTOR > 0 THEN OK = 1
+            IF OK = 1 AND REFACTOR # INT(REFACTOR) THEN OK = 0 ; * Must be integer
+         END
+      UNTIL OK = 1 DO REPEAT
+      CRT @(1,3):EOS:
+      RETURN
+3020  * Start new restore, or continue last?
+      ACCT = ''
+      LOOP
+         DONE.OPT = 1
+         CRT @(1,4):EOL:"(N)ew, (C)ontinue, (E)xit ":
+         INPUT OPT,1
+         BEGIN CASE
+            CASE OPT = 'N'
+               GOSUB 4030 ; * Setup new run
+               IF DONE = 0 THEN GOSUB 3100 ; * Restore MD/VOC
+            CASE OPT = 'C'
+               CONTINUING = 1 ; * different behavior if we're continuing from prior (failed?) restore
+               GOSUB 4040 ; * Setup continue from last run
+               IF ACCT = '' THEN
+                  CRT @(1,6):EOL:"No prior run to continue"
+                  DONE = 1
+               END
+            CASE OPT = 'E' OR OPT = ''
+               DONE = 1
+            CASE 1
+               DONE.OPT = 0
+         END CASE
+      UNTIL DONE = 1 OR DONE.OPT = 1 DO REPEAT
+      RETURN
+      *
+3100  * Restore items to MD/VOC
+      * We need to restore new file, then copy from there.
+      * This is to ensure we don't lose MD items and that
+      * we don't accidentally overlay MD.
+      *
+      * Hardcoded MD and VOC references below are not expected to
+      * cause abort when restore is done to "RESTORED.":MDICT
+      *~ #IF R83,AP,MVB
+      *~ EXECUTE "CREATE-FILE RESTORED.MD 1,1 31,1" CAPTURING OUT
+      *~ #END
+      *~ #IF D3
+      EXECUTE "CREATE-FILE RESTORED.MD 1 31" CAPTURING OUT
+      *~ #END
+      *~ #IF QM
+      *~ EXECUTE "CREATE.FILE RESTORED.MD" CAPTURING OUT
+      *~ #END
+      *~ #IF JB,U2
+      *~* Need Execute for CREATE.FILE
+      *~ DEBUG
+      *~ #END
+      * File might already exist, clear it
+      EXECUTE "CLEAR-FILE RESTORED.MD" CAPTURING OUT
+      *
+      DATA "R"
+      DATA "I"
+      DATA BASE.PATH:"\":ACCT:"\___.MVD0"
+      DATA "RESTORED.":MDICT
+      EXECUTE "FTPICK"
+      *
+      GOSUB 4010 ; * Get Status of transfer from Accuterm
+      IF DONE = 0 THEN
+         *
+         GOSUB 5310 ; * Remove MD items conflicting with file names
+         *
+         * Following Copy does not Overlay!
+         * Remove items at sub 5310 above if you are aware of specific
+         * items that need to be overlayed. This will usually be procs
+         * or catalog entries, occasionally filenames.
+         *
+         *~  #IF R83,AP,D3
+         DATA "(MD"
+         EXECUTE "COPY RESTORED.MD (IS" CAPTURING OUT
+         *~ #END
+         *~ #IF QM,JB,U2
+         *~* Need Copy of items to VOC
+         *~ DEBUG
+         *~ #END
+         *
+         READ META FROM F.MD,'SAVE.RESTORE.META' ELSE
+            META = ''
+            DONE = 1
+            LOG.DATA = "No Meta data"
+            GOSUB 5000
+            CRT ERL:LOG.DATA
+         END
+      END
+      RETURN
+      *
+3310  *
+      LOG.DATA = "Restoring dict ":DICT.NAME
+      GOSUB 5000
+      CRT EXL:LOG.DATA:
+      GOSUB 3400 ; * Get prime for current modulo
+      *
+      *~ #IF R83,AP,MVB
+      *~ EXECUTE "CREATE-FILE DICT ":DICT.NAME:" ": MODULO :",1" CAPTURING OUT
+      *~ #END
+      *~ #IF D3
+      CMD = "CREATE-FILE DICT ":DICT.NAME:" ": MODULO
+      EXECUTE CMD CAPTURING OUT
+      *~ #END
+      *~ #IF QM
+      *~ EXECUTE "CREATE.FILE DICT ":DICT.NAME CAPTURING OUT
+      *~ #END
+      *~ #IF JB,U2
+      *~* Need Execute for CREATE.FILE
+      *~ DEBUG
+      *~ #END
+      IF INDEX(OUT,"[417]",1) = 0 THEN
+         IF INDEX(OUT,"[413]",1) > 0 THEN
+            * OK if file already exists
+         END ELSE
+            LOG.DATA = "Error creating ":DICT.NAME:":"
+            LOG.DATA<-1> = OUT
+            LOG.DATA<-1> = "Command was:"
+            LOG.DATA<-1> = "'":CMD:"'"
+            GOSUB 5000
+            DONE = 1
+            RETURN
+         END
+      END
+      *~ #END
+      *
+      IF RETURN.AFTER.CREATE THEN RETURN
+      PATH = DICT.NAME
+      GOSUB 5210 ; * Filter bad chars from file name only
+      PATH = BASE.PATH:"\":ACCT:"\":PATH:".MVD1"
+      DATA "R"
+      DATA "I"
+      DATA PATH
+      DATA "DICT ":DICT.NAME
+      EXECUTE "FTPICK"
+      *
+      GOSUB 4010 ; * Get Status of transfer from Accuterm
+      IF RESULT.CODE = 1 THEN
+         LOG.DATA = "No items in dict ":DICT.NAME
+         GOSUB 5000
+      END
+      RETURN
+      *
+3320  *
+      LOG.DATA = "Restoring data ":DICT.NAME:",":DATA.NAME
+      GOSUB 5000
+      CRT EXL:EOS:LOG.DATA:
+      GOSUB 3400 ; * Get prime for current modulo
+      *
+      *~ #IF R83,AP,MVB
+      *~ EXECUTE "CREATE-FILE ":DICT.NAME:",":DATA.NAME:" ": MODULO :",1" CAPTURING OUT
+      *~ #END
+      *~ #IF D3
+      CMD = "CREATE-FILE ":DICT.NAME:",":DATA.NAME:" ": MODULO
+      EXECUTE CMD CAPTURING OUT
+      *~ #END
+      *~ #IF QM
+      *~ EXECUTE "CREATE.FILE ":DICT.NAME:",":DATA.NAME
+      *~ #END
+      *~ #IF JB,U2
+      *~* Need Execute for CREATE.FILE
+      *~ DEBUG
+      *~ #END
+      IF INDEX(OUT,"[417]",1) = 0 THEN
+         IF INDEX(OUT,"[413]",1) > 0 THEN
+            IF CONTINUING = 1 THEN ; * [-008]
+               * It's expected that a file might exist if we're re-running the restore.
+               * This is unlikely to be an error. Restore will add to whatever is in
+               * existing file.
+            END ELSE
+               LOG.DATA = "Error creating ":DICT.NAME:",":DATA.NAME:":"
+               LOG.DATA<-1> = OUT
+               LOG.DATA<-1> = "Command was:"
+               LOG.DATA<-1> = "'":CMD:"'"
+               *               LOG.DATA<-1> = "Modulo=":MODULO
+               *               LOG.DATA<-1> = "Refactor=":REFACTOR
+               GOSUB 5000
+               DONE = 1
+               RETURN
+            END
+         END
+      END
+      *~ #END
+      *
+      IF RETURN.AFTER.CREATE THEN RETURN
+      PATH = DICT.NAME : DELIM1 : DATA.NAME
+      GOSUB 5210 ; * Filter bad chars from file name only
+      PATH = BASE.PATH:"\":ACCT:"\":PATH:".MVD2"
+      DATA "R"
+      DATA "I"
+      DATA PATH
+      IF DICT.NAME = DATA.NAME THEN
+         DATA DATA.NAME
+      END ELSE
+         DATA DICT.NAME:",":DATA.NAME
+      END
+      EXECUTE "FTPICK"
+      *
+      GOSUB 4010 ; * Get Status of transfer from Accuterm
+      IF RESULT.CODE = 1 THEN
+         LOG.DATA = "No items in ":DICT.NAME:",":DATA.NAME
+         GOSUB 5000
+      END
+      RETURN
+      *
+3400  * Get Prime (Code posted to CDP by Lucian)
+      * Modified for R83 which doesn't accept EXIT statement
+      MODULO = INT(MODULO/REFACTOR)
+      IF MODULO = 0 THEN MODULO = 1 ; * [-010] 1/4 = .25, int = 0
+      PRM = MODULO
+      IF PRM < 4 THEN RETURN ; * No change to Modulo
+      IF MOD(PRM,2) ELSE PRM = PRM + 1
+      IF PRM = 5 THEN RETURN
+      DONE.PRM = 0
+      LOOP
+         IF MOD(PRM,5) THEN
+            MAX = SQRT(PRM)
+            IF MAX = INT(MAX) ELSE
+               MAX = INT(MAX)
+               FOUND = 1
+               FOR I = 3 TO MAX STEP 2 UNTIL DONE.PRM = 1
+                  IF MOD(PRM,I) ELSE
+                     FOUND = 0
+                     DONE.PRM = 1
+                  END
+               NEXT I
+               IF FOUND THEN DONE.PRM = 1
+            END
+         END
+      UNTIL DONE.PRM = 1 DO
+         PRM = PRM + 2
+      REPEAT
+      MODULO = PRM
+      RETURN
+      *

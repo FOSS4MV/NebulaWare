@@ -1,0 +1,93 @@
+      * SAVE.RESTORE.AT Part 1
+10    * Initialization
+      *
+      DEBUGGING = 0
+      RESTART = 0
+      CONTINUING = 0
+      NOF.OK = 0 ; * =1 indicates we're doing a restore and some missing files are OK
+      STX = CHAR(2)
+      ESC = CHAR(27)
+      CR = CHAR(13)
+      *~ #IF R83,AP,D3
+      MDICT = 'MD'
+      *~ #END
+      *~ #IF QM,U2
+      *~ MDICT = 'VOC'
+      *~ #END
+      STATUS = ESC:STX:"S"
+      DELIM1 = "___"
+      NEW = 1
+      AM = CHAR(254)
+      VM = CHAR(253)
+      SM = CHAR(252)
+      DONE = 0
+      LOG = ''
+      META = ''
+      PROMPT "?" ; * Prompt reset in code
+      CLEAR = @(-1)
+      EOS = @(-3)       ;*--Clear to the end of the screen
+      EOL = @(-4)       ;*--Clear to the end of the line
+      ERL = @(0,23):EOL
+      EXL = @(0,10):EOL
+      MESSAGE = ""
+      TODAY = DATE()
+      SUCCESS = -1 ; * MD open failure flag
+      PRINT CLEAR
+      OPEN MDICT TO F.MD ELSE
+         CRT @(0,3):"Failed to open ":MDICT", terminating."
+         RETURN
+      END
+      READ OK.ACCUTERM FROM F.MD,"FTPICK" ELSE ; * [-005]
+         CRT @(0,3):"Account does not appear to be enabled for AccuTerm, terminating."
+         RETURN
+      END
+
+      OPEN "MIGRATION.LOGS" TO F.LOGS ELSE
+         *
+         *~ #IF R83,AP,MVB
+         *~ EXECUTE "CREATE-FILE MIGRATION.LOGS 1,1 31,1" CAPTURING OUT
+         *~ #END
+         *~ #IF D3
+         EXECUTE "CREATE-FILE MIGRATION.LOGS 1 31" CAPTURING OUT
+         *~ #END
+         *~ #IF QM
+         *~ EXECUTE "CREATE.FILE MIGRATION.LOGS" CAPTURING OUT
+         *~ #END
+         *~ #IF JB,U2
+         *~* Need Execute for CREATE.FILE
+         *~ DEBUG
+         *~ #END
+         *
+         OPEN "MIGRATION.LOGS" TO F.LOGS ELSE
+            CRT @(0,3):"Failed to open MIGRATION.LOGS, terminating."
+            RETURN
+         END
+      END
+      * Just in case, update dict items in logs file
+      GOSUB 5410
+      *
+      LOG.ID = DATE():"*":TIME() ; * Add port later?
+      LOG = ''
+      SUCCESS = 0
+      LIST.OF.DICTS = ''
+      LIST.OF.DATAS = ''
+      RETURN
+      *
+20    * Prompt for save/restore, process request
+      CRT @(40,2):EOL:"Log ":LOG.ID
+      LOOP
+         CRT @(1,3):EOL:"(S)ave, (R)estore, (E)nd ": ; INPUT OP,1
+         IF OP="" THEN OP="E"
+      UNTIL INDEX("RSE",OP,1)>0 DO REPEAT
+      BEGIN CASE
+         CASE OP="S"
+            LOG.DATA = "Starting Save."
+            GOSUB 5000
+            GOSUB 2000
+         CASE OP="R"
+            LOG.DATA = "Starting Restore."
+            GOSUB 5000
+            GOSUB 3000
+      END CASE
+      RETURN
+      *

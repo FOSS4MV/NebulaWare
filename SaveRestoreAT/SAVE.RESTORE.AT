@@ -1,0 +1,171 @@
+      *
+      * SAVE.RESTORE.AT
+      * Use accuterm to save/restore entire accounts.
+      * Primarily intended for R83 and old AP to D3.
+      *
+      * Tony Gravagno, Nebula Research and Development
+      * http://Nebula-RnD.com
+      *
+      * Open Source v2.0.2 : 19-OCT-2014
+      *
+      * See https://bitbucket.org/foss4mv/nebulafreeware for:
+      * License
+      * Wiki (Usage, notes, setup, details, platform info, etc)
+      * Issue Tracker
+      * Latest Release
+      * and to contribute your changes back to Free and Open Source Software!
+      *
+      * If you make enhancements or port this code to another platform,
+      * please send the code back to FOSS4MV so that everyone benefits.
+      *
+      * Responsibility for implementation and use of this program rests
+      * entirely with the user.  Nebula R&D will not be liable for any
+      * time, data, financial, or other loss incurred as a result of
+      * execution of this program.  This software is distributed as-is
+      * with no warranties or guarantees, explicit or implied.
+      *
+
+      * Mods: Use [000] Initials Date Description
+      *
+      * [000] TG 30-nov-2007 Written, published as Nebula R&D freeware
+      * [-001] TG 22-jan-2012 Allow exiting for manual mod of META
+      * [-002] TG 22-jan-2012 Ask user to clear target dir for New run
+      * [-003] TG 26-jan-2012 Duration accounts for day crossover and multiple days
+      * [-004] TG 10-sep-2014 Allow skip of individual files in restore
+      * [-005] TG 10-sep-2014 Init fails if account is not enabled for AccuTerm
+      * [-006] TG 10-sep-2014 Exit if 'E' is selected in mod entry
+      * [-007] TG 12-sep-2014 Old D3 can't use CHANGE(), use AP code (toggled with XBASIC)
+      * [-008] TG 12-sep-2014 It's OK if we're continuing a restore and a file already exists
+      * [-009] TG 12-sep-2014 Display full command and error if file creation fails
+      * [-010] TG 12-sep-2014 Fix Modulo=0, reset to 1
+      * [-011] TG 15-sep-2014 E to exit options weren't working
+      * [-012] TG 15-sep-2014 Save Dict files with DC pointer
+      * [-013] TG 15-sep-2014 Terminate on init failure
+      * [-099] TG 25-jul-2013 Revised comments and ported to FOSS4MV
+      *
+      *************************************************************************
+      * Welcome Enhancements
+      * - check to see if save path already exists, don't recreate
+      * - When d-pointer can't be read from MD, display error
+      * - Give user option to save data or not for DY pointers
+      * - Improve selection of MD items
+      * - Improve selection of d-pointers in MD and dicts
+      * - Use meta<x,10> to create right-justified d-pointers in target platform
+      * - Use security from d-pointers atb5-6
+      * - Enhance for different platforms using XBASIC comments and "#IF type"
+      *************************************************************************
+      * Description:
+      * First prompt is for save or restore.
+      *
+      * SAVES:
+      * If saving new, get an account name, which may be different from current.
+      * This is only a reference name, not necessarily the actual account name.
+      * Option to Continue allows picking up from an abort of prior save.
+      * Option to Restart starts a new save using the existing meta item.
+      * Scan MD for d-pointers to dicts, then dicts for data files.
+      * (New or Continue only) Save data about files into META item in MD.
+      * (New or Continue only) Give option to exit for editing META item.
+      * Now save all MD data to local PC file, including the META item.
+      * Loop through META to save dict plus data, dict plus data, etc
+      *
+      * RESTORES:
+      * Create an account in the target system.
+      * Create a q-pointer to MIGRATION.BP
+      * See notes below about different MV platforms and XBASIC
+      * Run this program.
+      * Get the path and account reference as with the Save.
+      * Restore the MD/VOC without overwrite.
+      * Read the META item.
+      * For each META line, create the file, then restore the data.
+      *
+      * SAVE RESTARTS:
+      * Rename an existing backup directory. For example, GL > GL_May02
+      * Now do the restart. The new directory (GL) is created and a new
+      * backup is started using the current META item.
+      *
+      * Customize the save
+      * Modify the META item in the source system with an asterisk in the
+      * first character of any line to disable save of that file (like a
+      * BASIC comment). In the target the files are still created.
+      * For disabled files, be sure to copy previously saved files into a
+      * the save directory prior to restore.
+      *
+      * Handling aborts
+      * The MD item LAST.RUN tracks the index of the last successful
+      * META line that was processed. If the save or restore aborts, fix
+      * the error, then run the program again. Use the Continue option.
+      * The current meta item will be reprocessed and if successful the
+      * LAST.RUN item will be updated and the save/restore will continue.
+      * This is VERY helpful for environments with a bad network or bad
+      * hardware which fails repeatedly when trying to get a save.
+      *
+      * Customizing for different MV platforms:
+      * Look for #IF comments, like "#IF R83,AP" Use the XBASIC program by
+      * Kevin King to toggle platforms on/off.
+      *  http://precisonline.com/xbasic.html
+      *  Example:
+      *  #IF QM
+      *     VAR = UCASE(VAR) ; * not available in D3
+      *  #END
+      *  #IF R83,D3
+      *     VAR = OCONV(VAR,"MCU") ; * equivalent for these platforms
+      *  #END
+      * The platform codes can be made up but here are guidelines:
+      * R83,AP,D3,JB,UD,UV,U2,RE,OI,QM,MVB,MVE
+      *   U2 can be used where Unidata and Universe are the same
+      *   MVB=mvBase, MVE=mvEnterprise, RE=Reality/Microdata
+      *   AP should be the same for AP/Native, Pro, and Unix
+      * This code was written for an R83 to D3 migration. Code in v2.0.x has
+      * not been added to support other platforms. DEBUG statements have
+      * been added to stop code in untested platforms from executing.
+      * When moving code from one system to another, be certain to use XBASIC
+      * to convert it or syntax from another platform may compile but with
+      * undesirable effects.  For example:
+      * EXECUTE "CREATE.FILE ":NAME:" DIR"
+      * that QM syntax will compile for D3 but will not execute at runtime.
+      *
+      * Logs:
+      * The MIGRATION.LOGS file should be in a central account in the source
+      * system. This allows logs from all saves to go to the same place.
+      * In the target system, if you have a central log file, create a
+      * q-pointer to that file before the restore. Otherwise the restore
+      * code will create the log file in the restore account. That's not a
+      * problem, it will just leave you with multiple log files.
+      * On opening the log file for save or restore, the code at label 5410
+      * updates dict items which can then be used by program LOGS.1 and others.
+      *
+      * For R83:
+      * R83 does not support lower case commands, A correlatives, empty lines
+      * in code, or items larger than 32k. This program was broken into
+      * pieces just for R83. Please do not assemble and republish, but feel
+      * free to assemble for debugging and running in another platform.
+      *** See Tony Gravagno's page at nebula-rnd.com/freeware for a utility
+      *** which assembles Include modules into a single item.
+      *
+      *************************************************************************
+      *
+      START.DATE = DATE()
+      START.TIME = TIME()
+      GOSUB 10 ; * Init
+      IF SUCCESS = -1 THEN STOP ; * Init failed, terminate
+      GOSUB 20 ; * Prompt for save/restore, process request
+      END.DATE = DATE()
+      END.TIME = TIME()
+      * Mod-002
+      OFFSET = 0
+      IF END.DATE > START.DATE THEN OFFSET = (END.DATE-START.DATE)*86400
+      END.TIME = END.TIME + OFFSET
+      DURATION = END.TIME - START.TIME
+      LOG.DATA = "Duration ": (OCONV(DURATION,'MTS'))
+      GOSUB 5000
+      CRT EXL:EOS:LOG.DATA
+      CRT "See MIGRATION.LOGS, ":LOG.ID:" for activity detail"
+      STOP
+      *
+ INCLUDE SAVE.RESTORE.AT.1
+ INCLUDE SAVE.RESTORE.AT.2
+ INCLUDE SAVE.RESTORE.AT.3
+ INCLUDE SAVE.RESTORE.AT.4
+ INCLUDE SAVE.RESTORE.AT.5
+      *
+      END
