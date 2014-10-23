@@ -21,13 +21,14 @@
       * Mods: Use [000] Initials Date Description
       *           Number in braces is the tracker ID or -nn if no tracker.
       * [-001] 19-OCT-2014 TG Ported to FOSS4MV
+      * [003] 21-OCT-2014 TG Device not recognized after create
       *
 
       * Comments with *>> and *<< are for AccuTerm code folding.
-      
+
       * Usage: ACCOUNT-COPY fromAcct toAcct
       * or just use verb to get prompted
-      
+
       * Enhancement options for this code (volunteers welcome) :
       * - Language localization
       * - Better verification of valid account names
@@ -44,7 +45,7 @@
       * Site-specific data:
       equate PSEUDO to "C:\TEMP\CPYTMP.d3p,p"
       equate KEYWORD to "CPYTMP" ; * used to find unique device
-      
+
       * emsg has error message to display on exit, minimize CRT statements in-line
       emsg = ""
       * Need mds file to verify account existence
@@ -54,7 +55,7 @@
       atarget = ""
       * success is 0 for failure, 1 for OK, set in subroutines
       success = 0
-      
+
       * parse the command line for account names
       gosub get.cmd.data
       if success = 0 then ;* should be 1 to continue
@@ -67,30 +68,30 @@
       stop
 
 main: *>>
-      gosub detach.device
-      gosub get.device
-      if emsg # "" then return
-
-      * we have the device
-      gosub get.device.number
-      if emsg # "" then return
-
-      if asource = "" then
-         gosub get.and.confirm.accounts
+         gosub detach.device
+         gosub get.device
          if emsg # "" then return
-      end
 
-      crt "Saving account. Please wait."
-      gosub save.account
-      gosub rewind.device
-      crt "Restoring account. Please wait."
-      gosub restore.account
-      gosub rewind.device
-      gosub detach.device
-      gosub remove.device
-      crt "Generating indexes. Please wait."
-      gosub generate.indexes
-      success = 1
+         * we have the device
+         gosub get.device.number
+         if emsg # "" then return
+
+         if asource = "" then
+            gosub get.and.confirm.accounts
+            if emsg # "" then return
+         end
+
+         crt "Saving account. Please wait."
+         gosub save.account
+         gosub rewind.device
+         crt "Restoring account. Please wait."
+         gosub restore.account
+         gosub rewind.device
+         gosub detach.device
+         gosub remove.device
+         crt "Generating indexes. Please wait."
+         gosub generate.indexes
+         success = 1
       return ; *<<
 
 get.cmd.data: *>>
@@ -183,7 +184,8 @@ get.device: *>>
 create.device: *>>
          cmd = 'dev-make -t tape -a "' : PSEUDO : '"'
          execute cmd capturing out returning err
-         if index(out,"| ":PSEUDO,1) then tcreated = 1 else tcreated = 0
+         * if index(out,"| ":PSEUDO,1) then tcreated = 1 else tcreated = 0 ; *[003] Removed
+         if index(out,KEYWORD,1) then tcreated = 1 else tcreated = 0 ; *[003] Added
       return ; *<<
 
 remove.device: *>>
@@ -239,5 +241,5 @@ check.existing.device: *>>
          if err = 1705 then texists = 1 else texists = 0
       return ; *<<
 
-      
+
       end
