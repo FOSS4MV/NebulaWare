@@ -1,0 +1,113 @@
+*
+* D3.COMPILE.INFO: Shows compile date/time for D3 BASIC object code
+
+
+
+* Tony Gravagno, Nebula Research and Development
+* http://Nebula-RnD.com
+*
+* Open Source v1.0.1 : 26-nov-2014
+
+* See https://bitbucket.org/foss4mv/nebulafreeware for:
+* License
+* Wiki (Usage, notes, setup, details, platform info, etc)
+* Issue Tracker
+* Latest Release
+* and to contribute your changes back to Free and Open Source Software!
+
+* If you make enhancements or port this code to another platform,
+* please send the code back to FOSS4MV so that everyone benefits.
+
+* Mods: Use [000] Initials Date Description
+*           Number in braces is the tracker ID or -nn if no tracker.
+* [-001] 26-nov-2014 TG Ported to FOSS4MV after post to MVDBMS forum
+
+    crt "enter program file name: ":
+    input fname
+    if fname = "" then stop
+    open fname to fd else stop
+    open 'dict ':fname to fd else stop
+    open 'md' to fmd else stop
+    q = 'q'
+    q<3> = 'binary:':fname: @vm : 'x'
+    write q on fmd,'binary_view'
+    open 'dict binary_view' to fw else stop
+* select just the object code
+    execute "sselect dict ":fname:" with a1 cc"
+    done = 0
+    heading "" ; * just added to force pagination along with Print statements
+    loop
+      readnext id else done = 1
+    until done = 1 do
+      gosub the.hard.way
+      if cdate1 # "" then ; * an error prevents return of cdate1
+        print id:" ":cdate1:" ":ctime1 :    ; * don't drop to next line yet
+        gosub the.easy.way
+        if cdate1 # cdate2 or ctime1 # ctime2 then
+          print "   DOES NOT VERIFY with ":cdate2:" ":ctime2
+        end else
+          print ""
+        end
+      end
+    repeat
+    stop
+
+the.hard.way: *
+    cdate1 = "" ; * return value
+    ctime1 = ""
+    read rec from fw,id then
+* look for the end of the byte code, this is where metadata begins
+      xid = id
+      xid2 = oconv(xid,'mx')
+      pos = index(rec,'45FF':xid2,1)
+      if pos = 0 then
+* it's possible that the object code was compiled in a different
+* casing from the current item, AaaA is not the same in hex as aaaa.
+        xid = oconv(id,'mcl')
+        xid2 = oconv(xid,'mx')
+        pos = index(rec,'45FF':xid2,1)
+        if pos = 0 then
+          print id:" Object code does not have metadata"
+* This may not be accurate if the casing was just different but
+* in any case it's a flag that this item needs attention.
+          return
+        end
+      end
+      pos = pos + 2 + len('45FF':xid2)
+* get from that position to the end of the object module
+      rec2 = rec[pos,len(rec)]
+* now look for the end of data for this object module,
+* the rest of the data is a bunch of 000000000000's.
+      pos = index(rec2,'FEFF000000',1)
+* might need to check for alternative end bytes
+      if pos = 0 then pos = index(rec2,'FEFFFFFFFF',1)
+      if pos = 0 then pos = index(rec2,'00FF000000',1)
+      if pos = 0 then pos = index(rec2,'00FFFFFFFF',1)
+      if pos = 0 then
+        print id:" Failed to get end of data marker."
+* In this case the dict item may not have the c/date c/time.
+* Some items actually do just have a CC and frame pointer.
+* This may depend on the platform on which they were compiled, or
+* perhaps if the dict was sel-restored or t-loaded.
+* It's also possible that this item is at a frame boundary and
+* there isn't any trailing junk. More code is required here to
+* check that, but only if required.
+        return
+      end else
+* get metadata, it's a single MV attribute
+        rec3 = rec2[1,pos-1]
+* convert from hex to ASCII
+        rec4 = oconv(rec3,'my')
+        cdate1 = rec4<1,1>'d2/'
+        ctime1 = oconv(rec4<1,2>,'mts')
+      end
+    end else null
+    return
+
+the.easy.way: * one line to eliminate binary manipulation
+    execute "list dict ":fname:" '":id:"' a0 c/date c/time (chij" capturing out
+    out = trim(out)
+* returns short space-delimited string with ID DATE TIME
+    cdate2 = field(out,' ',2)
+    ctime2 = field(out,' ',3)
+    return
