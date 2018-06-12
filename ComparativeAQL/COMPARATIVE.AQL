@@ -1,146 +1,377 @@
-*
-* COMPARATIVE.AQL: Converts Comparator AQL queries
+    *
+    * COMPARATIVE.AQL: Converts Comparator AQL queries
 
 
 
-* Tony Gravagno, Nebula Research and Development
-* http://Nebula-RnD.com
-*
-* Open Source v2.0.1 : 25-jul-2013
+    * Tony Gravagno, Nebula Research and Development
+    * http://Nebula-RnD.com
+    *
+    * Open Source v2.0.1 : 25-jul-2013
+    * Last update v3.0.1 (Beta) : 12-jun-2018
 
-* See https://bitbucket.org/foss4mv/nebulafreeware for:
-* License
-* Wiki (Usage, notes, setup, details, platform info, etc)
-* Issue Tracker
-* Latest Release
-* and to contribute your changes back to Free and Open Source Software!
+    * See https://bitbucket.org/foss4mv/nebulafreeware for:
+    * License
+    * Wiki (Usage, notes, setup, details, platform info, etc)
+    * Issue Tracker
+    * Latest Release
+    * and to contribute your changes back to Free and Open Source Software!
 
-* If you make enhancements or port this code to another platform,
-* please send the code back to FOSS4MV so that everyone benefits.
+    * If you make enhancements or port this code to another platform,
+    * please send the code back to FOSS4MV so that everyone benefits.
 
-* Mods: Use [000] Initials Date Description
-*           Number in braces is the tracker ID or -nn if no tracker.
-* [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+    * Mods: Use [000] Initials Date Description
+    *           Number in braces is the tracker ID or -nn if no tracker.
+    * [-001] 25-jul-2013 TG Revised comments and ported to FOSS4MV
+    * [-002] 11-jun-2018 TG Allow "TO_LIST listname" in query to send
+    *                       selection to a named list. This may be required
+    *                       because a selection from BASIC may not go back
+    *                       up the execution stack.
+    * [-003] 11-jun-2018 TG Allow "TO_VAR" in query to send selection to a
+    *                       variable for the same reason above. Usage:
+    *                       READNEXT ID FROM AQL.LISTVAR ELSE ...
+    * [-004] 11-jun-2018 TG Allow "SHOW_DICTS" in query to display the list
+    *                       of temporary dict items at the end. Helps if
+    *                       there is an error and dict items are left in
+    *                       dict file for review.
+    * [-005] 11-jun-2018 TG Fixed bug, delete not deleting with correct IDs.
+    * [-006] 11-jun-2018 TG Enhanced to support D3 generated Annn dict names.
+    * [-007] 11-jun-2018 TG Allow "NO_DELETE" in query to preclude deletion
+    *                       of generated dict items.
+    * [-008] 11-jun-2018 TG Allow "SHOW_CMD" to display final query.
+    * [-009] 11-jun-2018 TG Using COMPARATIVE.AQL verb now creates all C verbs.
+    * [-010] 11-jun-2018 TG Now attempts to support for multiple platforms.
+    *                       With more complexity we'll need to use XBASIC.
+    * [-011] 11-jun-2018 TG Modularized code.
+    * [-012] 12-jun-2018 TG Identify and skip unquoted literals.
 
-    TCL = TRIM(SENTENCE())
-    FNAME = FIELD(TCL,' ',2)
-    FPOS = 2
-    IF FNAME = 'DICT' THEN  ; * access statement is against dict
-      DNAME = 'MD'         ; * definitions in md for dict file
-      FNAME = FIELD(TCL,' ',3)
-      FPOS = 3
-* Using new definitions created in the MD doesn't seem to
-* be working.  Operations on Dict are not yet supported.
-      STOP "U9001"
-    END ELSE
-      DNAME = 'DICT ':FNAME ; * definitions in dict
-    END
-    FPOS += 1 ; * start with first word after file name
-    OPEN DNAME TO DICT ELSE STOP 201,DNAME
-    WORDS = DCOUNT(TCL,' ')
-***************************************************************
-*
-* Create the list of operators that determine whether
-* any trio of values is a comparison.  Example:
-*     verb file WITH aaa LE bbb
-* We need to check for that LE
-*
-* This is the list of valid TCL operators
-    TEMP = '< LT BEFORE'
-    TEMP := ' > GT AFTER'
-    TEMP := ' = EQ'
-    TEMP := ' # NE NOT'
-    TEMP := ' >= GE <= LE'
-    OPERATORS = SWAP(TEMP,' ',@VM)
-*
-* All of those operators have an equivalent in the A-Correlative.
-* Just in case one of the values cannot be used in a correlative,
-* create a sublist of operators that is the SAME as the above.
-*
-    TEMP = '< < <'
-    TEMP := ' > > >'
-    TEMP := ' = ='
-    TEMP := ' # # #'
-    TEMP := ' >= >= <= <='
-    SAME.OP1 = SWAP(TEMP,' ',@VM)
+    * Platform must support Named Common
+    * your code that uses this must include the following line.
+    COMMON /CAQL/ AQL.LISTNAME, AQL.LISTVAR
 
-* Finally, we're creating dict items that include the operator
-* in the ID. We don't want to use the symbol so we use a more
-* verbose form.
-    TEMP = '_LT_ _LT_ _LT_'
-    TEMP := ' _GT_ _GT_ _GT_'
-    TEMP := ' _EQ_ _EQ_'
-    TEMP := ' _NE_ _NE_ _NE_'
-    TEMP := ' _GE_ _GE_ _LE_ _LE_'
-    SAME.OP2 = SWAP(TEMP,' ',@AM)
+    GOSUB MAIN
+    STOP
 
-* When we see these words we are done scanning
-    DONE.WORDS = 'HEADING FOOTING SAMPLING'
-    DONE.WORDS := ' COL-HDR-SUPP HDR-SUPP ID-SUPP'
-* Add more Done.Words here as required - there are lots.
-* The only harm in missing them is that we'll scan into them,
-* but this isn't a problem unless an Operator word is found
-* in a header/footer or in output specs.
-* Example of a problem header:
-* HEADING "Products where Type=1     PaGE 'PNCL'"
-    DONE.WORDS = SWAP(DONE.WORDS,' ',@VM)
+MAIN: *>>
+      DONE = 0
 
-    SUBS = ''
-    DONE = 0
-    FOR W = FPOS TO WORDS UNTIL DONE ; * MOD[1] Check for Done
-      WORD1 = FIELD(TCL,' ',W)
-* If we find a Done word then stop processing
-      LOCATE(WORD1,DONE.WORDS,1;POS) THEN
+      GOSUB CHECK.PLATFORM
+      IF DONE THEN RETURN
+
+      TCL = TRIM(SENTENCE())
+      WORDS = DCOUNT(TCL,' ')
+
+      GOSUB CHECK.INSTALL
+      IF DONE THEN RETURN
+
+      GOSUB CHECK.DICT.ACCESS
+      IF DONE THEN RETURN
+
+      GOSUB DEFINE.KEYWORDS
+      IF DONE THEN RETURN
+
+      GOSUB SPECIAL.DIRECTIVES
+      IF DONE THEN RETURN
+
+      GOSUB PARSE.WORDS
+      IF DONE THEN RETURN
+
+      * Remove the leading "C" that got us into this mess
+      TCL = TCL[2,99999]
+
+      GOSUB EXECUTE.REQUEST
+      IF DONE THEN RETURN
+
+      GOSUB REMOVE.GENERATED.DICTS
+      IF DONE THEN RETURN
+
+      GOSUB SHOW.GENERATED.DICTS
+      IF DONE THEN RETURN
+
+    RETURN ; *<<
+
+CHECK.PLATFORM: *>>
+      PLATFORM = 'D3' ; * Change to D3, JB, MVB, QM, UD, UV
+      SUPPORTED = "D3 MVB"
+      LOCATE(PLATFORM,CHANGE(SUPPORTED,' ',@AM);POS) ELSE
+        CRT "** Code is expecting platform : '":PLATFORM:"'"
+        CRT "** Please check the code for changes based on PLATFORM."
+        CRT "** Remove this warning after changes."
         DONE = 1
+      END
+
+    RETURN ; *<<
+
+CHECK.INSTALL: *>>
+      IF TCL # 'COMPARATIVE.AQL' THEN RETURN
+      MDFILE = 'MD'
+      OPEN MDFILE TO FMD ELSE
+        MDFILE = 'VOC'
+        OPEN MDFILE TO FMD ELSE
+          CRT "Cannot open MD/VOC"
+          DONE = 1
+          RETURN
+        END
+      END
+      * The verb list should include all Access-class verbs
+      VERBS = 'CSELECT CSSELECT CLIST CSORT CLIST-LABEL CSORT-LABEL CQSELECT CCOUNT CSUM'
+
+      * This gets as many source items as required to populate the target items
+      IF PLATFORM = 'D3' OR PLATFORM = 'MVB' THEN
+        CMD = 'COPY ':MDFILE: STR(' COMPARATIVE.AQL',DCOUNT(VERBS,' ')):' (OIS'
+        SAVE.LIST = "SAVE-LIST"
       END ELSE
-* We're not done, look at the block of Words 1,2,3
-        WORD2 = FIELD(TCL,' ',W+1)
-        WORD3 = FIELD(TCL,' ',W+2)
-* Ignore normal literals
-        IF WORD3[1,1] # \"\ THEN
-* Is the second word an operator between two ADI's?
-          LOCATE(WORD2,OPERATORS,1;POS) THEN
-* Create a new dict item
-            ADI = SWAP("S,0,,,,,,,R,1", "," ,@AM)
-            CORR = "A;IF N(":WORD1:") "
-            CORR := SAME.OP1<1,POS>
-            CORR := " N(":WORD3:") THEN '1' ELSE '0'"
-* The comparator is in the Correlative = atb8
-            ADI<8> = CORR
-* Write the new dict item
-            WRITE ADI ON DICT, WORD1:(SAME.OP2<POS>):WORD3
-* Create a substitution string so that we can
-* replace the new ADI into the command line
-* when we're all done.
-            TEMP = WORD1:' ':WORD2:' ':WORD3
-            TEMP<1,2> = WORD1:(SAME.OP2<POS>):WORD3:\ = "1"\
-            SUBS<-1> = TEMP
-* Skip from word1 to word after word3
-            W += 2
+        VERBS = CHANGE(VERBS,'-','.') ; * what else needs to be done before COPY?
+        SAVE.LIST = "SAVE.LIST"
+        * COPYP?
+        CRT "Platform support required for '":PLATFORM:"'"
+        DONE = 1
+        RETURN
+      END
+
+      DATA VERBS
+      EXECUTE CMD
+      CRT 'Comparative AQL verbs have been installed:'
+      CRT '  ':VERBS
+      DONE = 1
+
+    RETURN ; *<<
+
+CHECK.DICT.ACCESS: *>>
+      FNAME = FIELD(TCL,' ',2)
+      FPOS = 2
+      IF FNAME = 'DICT' THEN  ; * access statement is against dict
+        DNAME = MDFILE         ; * definitions in md/voc for dict file
+        FNAME = FIELD(TCL,' ',3)
+        FPOS = 3
+        * Using new definitions created in the MD doesn't seem to
+        * be working.
+        CRT "Operations on Dict are not yet supported."
+        DONE = 1
+        RETURN
+      END ELSE
+        DNAME = 'DICT ':FNAME ; * definitions in dict
+      END
+      FPOS += 1 ; * start with first word after file name
+      OPEN DNAME TO DICT ELSE
+        CRT "Can't access dict ":DNAME
+        DONE = 1
+      END
+
+    RETURN ; *<<
+
+DEFINE.KEYWORDS: *>>
+      ***************************************************************
+      *
+      * Create the list of operators that determine whether
+      * any trio of values is a comparison.  Example:
+      *     verb file WITH aaa LE bbb
+      * We need to check for that LE
+      *
+      * This is the list of valid TCL operators
+      TEMP = '< LT BEFORE'
+      TEMP := ' > GT AFTER'
+      TEMP := ' = EQ'
+      TEMP := ' # NE NOT'
+      TEMP := ' >= GE <= LE'
+      OPERATORS = CHANGE(TEMP,' ',@VM)
+      *
+      * All of those operators have an equivalent in the A-Correlative.
+      * Just in case one of the values cannot be used in a correlative,
+      * create a sublist of operators that is the SAME as the above.
+      *
+      TEMP = '< < <'
+      TEMP := ' > > >'
+      TEMP := ' = ='
+      TEMP := ' # # #'
+      TEMP := ' >= >= <= <='
+      SAME.OP1 = CHANGE(TEMP,' ',@VM)
+
+      * Finally, we're creating dict items that include the operator
+      * in the ID. We don't want to use the symbol so we use a more
+      * verbose form.
+      TEMP = '_LT_ _LT_ _LT_'
+      TEMP := ' _GT_ _GT_ _GT_'
+      TEMP := ' _EQ_ _EQ_'
+      TEMP := ' _NE_ _NE_ _NE_'
+      TEMP := ' _GE_ _GE_ _LE_ _LE_'
+      SAME.OP2 = CHANGE(TEMP,' ',@AM)
+
+      * When we see these words we are done scanning
+      DONE.WORDS = 'HEADING FOOTING SAMPLING'
+      DONE.WORDS := ' COL-HDR-SUPP HDR-SUPP ID-SUPP'
+      * Add more Done.Words here as required - there are lots.
+      * The only harm in missing them is that we'll scan into them,
+      * but this isn't a problem unless an Operator word is found
+      * in a header/footer or in output specs.
+      * Example of a problem header:
+      * HEADING "Products where Type=1     Page 'PNCL'"
+      DONE.WORDS = CHANGE(DONE.WORDS,' ',@VM)
+
+    RETURN ; *<<
+
+SPECIAL.DIRECTIVES: *>>
+      * [-002] Allow query to force final list into a select list
+      AQL.LISTNAME = ""
+      POS1 = INDEX(TCL,' TO_LIST ',1)
+      IF POS1 > 0 THEN
+        BACK = TCL[POS1+1,99999]   ; * = "TO_LIST name ....."
+        AQL.LISTNAME = FIELD(BACK,' ',2)  ; * = name
+        * Now remove the keyword and the name
+        TCL = TCL[1,POS1-1] : TCL[  POS1 + 8 + LEN(AQL.LISTNAME) + 1 , 99999]
+      END
+      * [-003] Allow query to force final list into a list variable
+      AQL.LISTVAR = ""
+      USE.LISTVAR = 0
+      POS1 = INDEX(TCL,' TO_VAR',1)
+      IF POS1 > 0 THEN
+        USE.LISTVAR = 1
+        TCL = CHANGE(TCL,' TO_VAR',''); * just remove this keyword
+      END
+      * [-004] Show new dict names written
+      SHOW.DICTS = 0
+      POS1 = INDEX(TCL,' SHOW_DICTS',1)
+      IF POS1 > 0 THEN
+        SHOW.DICTS = 1
+        TCL = CHANGE(TCL,' SHOW_DICTS',''); * just remove this keyword
+      END
+      * [-007] Avoid deleting new dict items
+      NO.DELETE = 0
+      POS1 = INDEX(TCL,' NO_DELETE',1)
+      IF POS1 > 0 THEN
+        NO.DELETE = 1
+        TCL = CHANGE(TCL,' NO_DELETE',''); * just remove this keyword
+      END
+      * [-008] Avoid deleting new dict items
+      SHOW.CMD = 0
+      POS1 = INDEX(TCL,' SHOW_CMD',1)
+      IF POS1 > 0 THEN
+        SHOW.CMD = 1
+        TCL = CHANGE(TCL,' SHOW_CMD',''); * just remove this keyword
+      END
+
+    RETURN ; *<<
+
+PARSE.WORDS: *>>
+      SUBS = ''
+      DONE = 0
+      FOR W = FPOS TO WORDS UNTIL DONE
+        WORD1 = FIELD(TCL,' ',W)
+        * If we find a Done word then stop processing
+        LOCATE(WORD1,DONE.WORDS,1;POS) THEN
+          DONE = 1
+        END ELSE
+          * We're not done, look at the block of Words 1,2,3
+          WORD2 = FIELD(TCL,' ',W+1)
+          WORD3 = FIELD(TCL,' ',W+2)
+          * Ignore normal literals
+          IF WORD3[1,1] # '"' THEN
+            * Is the second word an operator between two ADI's?
+            LOCATE(WORD2,OPERATORS,1;POS) THEN GOSUB GENERATE.DEF
+          END
+        END
+      NEXT W
+      *
+      * Replace all word1,2,3 sequences with new ADI's
+      FOR W = 1 TO DCOUNT(SUBS,@AM)
+        TCL = CHANGE(TCL,SUBS<W,1>,SUBS<W,2>)
+      NEXT W
+
+    RETURN ; *<<
+
+GENERATE.DEF: *>>
+      * Create a new dict item
+      ADI = CHANGE("S,0,,,,,,,R,1", "," ,@AM)
+      * [-006]
+      IF WORD1[1,1] = 'A' AND NUM(WORD1[2,9]) THEN
+        READ TEMP FROM DICT,WORD1 THEN
+          CORR = "A;IF N(":WORD1:") " ; * use the Annn dictname provided
+        END ELSE
+          CORR = "A;IF ":WORD1[2,9]:" " ; * just use the atb reference
+        END
+      END ELSE
+        CORR = "A;IF N(":WORD1:") " ; * normal dict name
+      END
+
+      CORR := SAME.OP1<1,POS>
+
+      IF WORD3[1,1] = 'A' AND NUM(WORD3[2,9]) THEN
+        READ TEMP FROM DICT,WORD3 THEN
+          CORR := " N(":WORD3:")" ; * use the Annn dictname provided
+        END ELSE
+          CORR := " ": WORD3[2,9] ; * just use the atb reference
+        END
+      END ELSE
+        READ TEMP FROM DICT,WORD3 THEN
+          CORR := " N(":WORD3:")" ; * verified dict definition
+        END ELSE
+          READ TEMP FROM FMD,WORD3 THEN ; * reach down to the MD
+            CORR := " N(":WORD3:")" ; * verified dict definition
+          END ELSE
+            * This is probably an unquoted literal and should be ignored.
+            RETURN
           END
         END
       END
-    NEXT W
-*
-* Replace all word1,2,3 sequences with new ADI's
-    FOR W = 1 TO DCOUNT(SUBS,@AM)
-      TCL = SWAP(TCL,SUBS<W,1>,SUBS<W,2>)
-    NEXT W
-***************************************************************
-*
-* Remove the leading "C" that got us into this mess
-    TCL = TCL[2,99999]
-    CRT TCL
-    EXECUTE TCL RETURNING ERR
-*
-***************************************************************
-*
-* Remove the dict items that we created,
-* only if there is no error.
-    IF ERR # 166 THEN
-      FOR W = 1 TO DCOUNT(SUBS,@AM)
-        DELETE DICT,SUBS<W,2>
-      NEXT W
+
+      CORR := " THEN '1' ELSE '0'"
+      * The comparator is in the Correlative = atb8
+      ADI<8> = CORR
+      * Write the new dict item
+      WRITE ADI ON DICT, WORD1:(SAME.OP2<POS>):WORD3
+      * Create a substitution string so that we can
+      * replace the new ADI into the command line
+      * when we're all done.
+      TEMP = WORD1:' ':WORD2:' ':WORD3
+      TEMP<1,2> = WORD1:(SAME.OP2<POS>):WORD3:' = "1"'
+      SUBS<-1> = TEMP
+      * Skip from word1 to word after word3
+      W += 2
+
+    RETURN ; *<<
+
+EXECUTE.REQUEST: *>>
+      * Save list on selection?
+      IF AQL.LISTNAME # "" AND INDEX(TCL[1,7],"SELECT",1)>0 THEN
+        IF SHOW.CMD THEN
+          CRT TCL
+          CRT SAVE.LIST:" ":AQL.LISTNAME
+        END
+        DATA SAVE.LIST:" ":AQL.LISTNAME
+        EXECUTE TCL RETURNING ERR
+      END ELSE ;* Can't save to list and to var
+        IF SHOW.CMD THEN
+          CRT TCL
+        END
+        IF USE.LISTVAR THEN
+          EXECUTE TCL RTNLIST AQL.LISTVAR RETURNING ERR; * saved in named common!
+        END ELSE
+          EXECUTE TCL RETURNING ERR
+        END
+      END
+
+    RETURN ; *<<
+
+REMOVE.GENERATED.DICTS: *>>
+      * Remove the dict items that we created,
+      * only if there is no error.
+
+      IF ERR # 166 AND NOT(NO.DELETE) THEN
+        FOR W = 1 TO DCOUNT(SUBS,@AM)
+          DELETE DICT,CHANGE(SUBS<W,2>,' = "1"','')
+        NEXT W
+      END
+
+    RETURN ; *<<
+
+SHOW.GENERATED.DICTS: *>>
+      IF SHOW.DICTS THEN ; * [-004]
+        FOR W = 1 TO DCOUNT(SUBS,@AM)
+          CRT CHANGE(SUBS<W,2>,' = "1"',''):" ":
+        NEXT W
+        CRT
+      END
+
+    RETURN ; *<<
+
+
     END
-*
-END
